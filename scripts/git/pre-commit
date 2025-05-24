@@ -1,0 +1,10 @@
+#!/bin/sh
+
+printf "exec checker...\n"
+if [ -n "$(make check)" ]; then
+  echo >&2 "[ERROR]: Some files have changed, please add the changed files to this submission!"
+  exit 1
+fi
+
+echo "exec checker end"
+exit 0
