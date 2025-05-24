@@ -1,0 +1,255 @@
+# options for analysis running
+run:
+  go: '1.23'
+
+  # default concurrency is a available CPU number
+  concurrency: 4
+
+  # timeout for analysis, e.g. 30s, 5m, default is 1m
+  timeout: 5m
+
+issues:
+  # Excluding configuration per-path, per-linter, per-text and per-source
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - funlen
+        - dupl
+        - maintidx
+  exclude-dirs:
+    - .idea
+    - .git
+    - .github
+    - scripts
+    - api
+    - config
+    - deployment
+
+# All available settings of specific linters.
+linters-settings:
+  gosec:
+    # 禁用特定的 gosec 检查规则
+    excludes:
+      - G115  # 禁用整数类型转换溢出检查
+      - G404
+  cyclop:
+    max-complexity: 20
+  errcheck:
+    check-type-assertions: true
+  goconst:
+    min-len: 2
+    min-occurrences: 3
+  revive:
+    rules:
+      - name: unused-parameter
+        severity: disabled  # 或 severity: warning
+  gocritic:
+    disabled-checks:
+      - "commentedOutCode"
+      - "commentFormatting"
+      - "assignOp"
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    settings:
+      hugeParam:
+        # Size in bytes that makes the warning trigger.
+        # Default: 80
+        # 性能瓶颈不在这里
+        sizeThreshold: 1024
+  govet:
+    shadow: true
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+  staticcheck:
+    checks:
+      # 禁用 SA4008（"-" 表示排除）
+      - "-SA4008"
+  exhaustive:
+    check-generated: false
+    default-signifies-exhaustive: true
+  funlen:
+    lines: 100
+    statements: 40
+
+
+# https://olegk.dev/go-linters-configuration-the-right-version
+linters:
+  # Set to true runs only fast linters.
+  # Good option for 'lint on save', pre-commit hook or CI.
+  fast: false
+  # Disable all linters.
+  # Default: false
+  disable-all: true
+  # Enable specific linter
+  # https://golangci-lint.run/usage/linters/#enabled-by-default
+  enable:
+    # Check for pass []any as any in variadic func(...any).
+    # Rare case but saved me from debugging a few times.
+    - asasalint
+
+    # I prefer plane ASCII identifiers.
+    # Symbol `∆` instead of `delta` looks cool but no thanks.
+    - asciicheck
+
+    # Checks for dangerous unicode character sequences.
+    # Super rare but why not to be a bit paranoid?
+    - bidichk
+
+    # Checks whether HTTP response body is closed successfully.
+    - bodyclose
+
+    # Check whether the function uses a non-inherited context.
+#    - contextcheck
+
+    # Checks function and package cyclomatic complexity.
+    #
+    # Cyclomatic complexity is a measurement, not a goal.
+    # (c) Bryan C. Mills / https://github.com/bcmills
+    - cyclop
+
+    # Check for two durations multiplied together.
+    - durationcheck
+
+    # Tool for code clone detection.
+    - dupl
+
+    # Forces to not skip error check.
+    - errcheck
+
+    # Checks `Err-` prefix for var and `-Error` suffix for error type.
+    - errname
+
+    # Suggests to use `%w` for error-wrapping.
+    - errorlint
+
+    # Checks for pointers to enclosing loop variables.
+    - copyloopvar
+
+    - exhaustive
+
+    - funlen
+
+    # Reports magic consts. Might be noisy but still good.
+    - mnd
+
+    # Same as `cyclop` linter (see above)
+    - gocognit
+    - goconst
+    - gocyclo
+
+    # As you already know I'm a co-author. It would be strange to not use
+    # one of my warmly loved projects.
+    - gocritic
+
+    # Forces to put `.` at the end of the comment. Code is poetry.
+    #    - godot
+
+    # Might not be that important, but I prefer to keep all of them.
+    # `gofumpt` is amazing, kudos to Daniel Marti https://github.com/mvdan/gofumpt
+    - gofmt
+    - gofumpt
+    - goimports
+
+    # Allow or ban replace directives in go.mod
+    # or force explanation for retract directives.
+    - gomoddirectives
+
+    # Powerful security-oriented linter. But requires some time to
+    # configure it properly, see https://github.com/securego/gosec#available-rules
+    - gosec
+
+    # Linter that specializes in simplifying code.
+    - gosimple
+
+    # Official Go tool. Must have.
+    - govet
+
+    # Detects when assignments to existing variables are not used
+    # Last week I caught a bug with it.
+    - ineffassign
+
+    # Fix all the misspells, amazing thing.
+    - misspell
+
+    # Maintainability index of each function, subjective.
+    - maintidx
+
+    # Finds naked/bare returns and requires change them.
+    - nakedret
+
+    # Both require a bit more explicit returns.
+    - nilerr
+    - nilnil
+
+    # Finds sending HTTP request without context.Context.
+    - noctx
+
+    # Forces comment why another check is disabled.
+    # Better not to have //nolint: at all ;)
+    - nolintlint
+
+    # Finds slices that could potentially be pre-allocated.
+    # Small performance win + cleaner code.
+    - prealloc
+
+    # Finds shadowing of Go's predeclared identifiers.
+    # I hear a lot of complaints from junior developers.
+    # But after some time they find it very useful.
+    - predeclared
+
+    # Lint your Prometheus metrics name.
+    - promlinter
+
+#    - paralleltest
+
+    # Checks that package variables are not reassigned.
+    # Super rare case but can catch bad things (like `io.EOF = nil`)
+    - reassign
+
+    # Drop-in replacement of `golint`.
+    - revive
+
+    # Somewhat similar to `bodyclose` but for `database/sql` package.
+    - rowserrcheck
+    - sqlclosecheck
+
+    # I have found that it's not the same as staticcheck binary :\
+    - staticcheck
+
+    # Is a replacement for `golint`, similar to `revive`.
+    - stylecheck
+
+    # Check struct tags.
+    - tagliatelle
+
+    # Test-related checks. All of them are good.
+    - usetesting
+    - testableexamples
+    - thelper
+    - tparallel
+
+    # Remove unnecessary type conversions, make code cleaner
+    - unconvert
+
+    # Might be noisy but better to know what is unused
+    - unparam
+
+    # Must have. Finds unused declarations.
+    - unused
+
+    # Detect the possibility to use variables/constants from stdlib.
+    - usestdlibvars
+
+    # Finds wasted assignment statements.
+    - wastedassign
+
+    # Forces you to use empty lines. Great if configured correctly.
+#    对于换行之类的来说，wsl 的检测规则和我代码的分组形式冲突了
+#    - wsl
+
+# Options for analysis running.
