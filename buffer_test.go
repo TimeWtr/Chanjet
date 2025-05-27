@@ -15,6 +15,7 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -49,8 +50,8 @@ func TestNewBuffer(t *testing.T) {
 
 		// 64KB数据，每秒钟的传输量约为250万条
 		template := "2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号为: %d\n"
-		for i := 0; i < 2400000; i++ {
-			err := bf.Write([]byte(fmt.Sprintf(template, i)))
+		for i := 0; i < 3700000; i++ {
+			err = bf.Write([]byte(fmt.Sprintf(template, i)))
 			if err != nil {
 				t.Logf("写入日志失败，错误：%s\n", err.Error())
 				continue
@@ -282,7 +283,7 @@ func TestNewBuffer_1KB_5000(t *testing.T) {
 
 // TestNewBuffer_10KB_5000 1KB大小的数据，缓冲区容量设置为5000条，1s的测试传输数据量为310万
 func TestNewBuffer_10KB_5000(t *testing.T) {
-	bf, err := NewBuffer(5000, 10)
+	bf, err := NewBuffer(10000, 10)
 	assert.NoError(t, err)
 
 	data, err := generateData(1024)
@@ -399,13 +400,9 @@ func BenchmarkNewBuffer_No_Log(b *testing.B) {
 		defer wg.Done()
 		defer bf.Close()
 
-		template := "2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号为: "
+		template := []byte("2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号 1234535453534")
 		for i := 0; i < b.N; i++ {
-			var builder strings.Builder
-			builder.WriteString(template)
-			builder.WriteString(strconv.Itoa(i))
-			builder.WriteString("\n")
-			err := bf.Write([]byte(builder.String()))
+			err = bf.Write(template)
 			if err != nil {
 				b.Logf("写入日志失败，错误：%s\n", err.Error())
 				continue
@@ -415,4 +412,90 @@ func BenchmarkNewBuffer_No_Log(b *testing.B) {
 
 	wg.Wait()
 	b.Log("写入成功")
+}
+
+// 基准测试组配置
+var testCases = []struct {
+	name      string
+	batchSize int
+	dataSize  int
+}{
+	{"Small-1KBx100", 100, 1024},
+	{"Medium-10KBx1k", 1000, 10240},
+	{"Large-100KBx10k", 10000, 102400},
+}
+
+// 主基准测试函数
+func BenchmarkBuffer(b *testing.B) {
+	for _, tc := range testCases {
+		b.Run(tc.name, func(b *testing.B) {
+			buffer, _ := NewBuffer(1024*1024, 0) // 1MB容量
+			defer buffer.Close()
+
+			dataPool := make([][]byte, tc.batchSize)
+			for i := 0; i < tc.batchSize; i++ {
+				dataPool[i], _ = generateData(tc.dataSize)
+			}
+
+			b.ResetTimer()
+			b.SetParallelism(8) // 8个并发写入goroutine
+
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					for _, data := range dataPool {
+						if err := buffer.Write(data); err != nil {
+							b.Fatal(err)
+						}
+					}
+				}
+			})
+
+			// 验证数据完整性
+			var total int
+			for d := range buffer.Register() {
+				total += len(d)
+			}
+			b.Logf("数据校验: 写入量 %d MB", total/(1024*1024))
+		})
+	}
+}
+
+// 测试不同数据大小的基准测试
+func BenchmarkBuffer_Write(b *testing.B) {
+	sizes := []int{
+		128,     // 小数据 (128B)
+		1024,    // 中数据 (1KB)
+		65536,   // 大数据 (64KB)
+		1 << 20, // 超大数据 (1MB)
+	}
+
+	for _, size := range sizes {
+		b.Run(formatSize(size), func(b *testing.B) {
+			// 初始化缓冲区 (20MB容量)
+			buf, _ := NewBuffer(20*1024*1024, 2)
+			defer buf.Close()
+
+			// 预填充测试数据
+			data := bytes.Repeat([]byte("x"), size)
+
+			b.ResetTimer()
+			b.SetParallelism(8) // 模拟并发写入
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					_ = buf.Write(data)
+				}
+			})
+		})
+	}
+}
+
+func formatSize(bytes int) string {
+	switch {
+	case bytes >= 1<<20:
+		return "1MB"
+	case bytes >= 1<<10:
+		return "64KB"
+	default:
+		return "128B"
+	}
 }
