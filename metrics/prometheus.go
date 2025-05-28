@@ -16,7 +16,6 @@ package metrics
 
 import (
 	"net/http"
-	"sync"
 
 	"github.com/TimeWtr/Chanjet/_const"
 	"github.com/prometheus/client_golang/prometheus"
@@ -24,15 +23,22 @@ import (
 )
 
 var (
-	mc   *Prometheus
-	once sync.Once
+	mc       *Prometheus
+	registry *prometheus.Registry // 指标注册表
 )
+
+// GetHandler 返回HTTP处理器用于对接各种框架
+func GetHandler() http.Handler {
+	return promhttp.HandlerFor(
+		registry,
+		promhttp.HandlerOpts{EnableOpenMetrics: true},
+	)
+}
 
 var _ Collector = (*Prometheus)(nil)
 
 type Prometheus struct {
 	enabled                 bool                   // 是否开启指标采集
-	registry                *prometheus.Registry   // 指标注册表
 	writeCounter            *prometheus.CounterVec // 写入的总条数数量
 	writeSizes              prometheus.Counter     // 写入的总大小
 	writeErrors             prometheus.Counter     // 写入失败的错误计数
@@ -49,9 +55,8 @@ type Prometheus struct {
 }
 
 func NewPrometheus() *Prometheus {
-	mc = &Prometheus{
-		registry: prometheus.NewRegistry(),
-	}
+	mc = &Prometheus{}
+	registry = prometheus.NewRegistry()
 	return mc.register()
 }
 
@@ -62,101 +67,93 @@ func (p *Prometheus) register() *Prometheus {
 		Name:      "write_counts_total",
 		Help:      "Number of metrics written by write.",
 	}, []string{"result"})
-	p.registry.MustRegister(p.writeCounter)
+	registry.MustRegister(p.writeCounter)
 
 	p.writeSizes = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "write_sizes_total",
 		Help:      "Number of metrics written by write sizes.",
 	})
-	p.registry.MustRegister(p.writeSizes)
+	registry.MustRegister(p.writeSizes)
 
 	p.writeErrors = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "write_errors_total",
 		Help:      "Number of errors encountered by write.",
 	})
-	p.registry.MustRegister(p.writeErrors)
+	registry.MustRegister(p.writeErrors)
 
 	p.readCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "read_counts_total",
 		Help:      "Number of metrics read.",
 	}, []string{"result"})
-	p.registry.MustRegister(p.readCounter)
+	registry.MustRegister(p.readCounter)
 
 	p.readSizes = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "read_metrics_sizes_total",
 		Help:      "Number of metrics read sizes.",
 	})
-	p.registry.MustRegister(p.readSizes)
+	registry.MustRegister(p.readSizes)
 
 	p.readErrors = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "read_metrics_errors_total",
 		Help:      "Number of read errors.",
 	})
-	p.registry.MustRegister(p.readErrors)
+	registry.MustRegister(p.readErrors)
 
 	p.poolAlloc = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "pool_alloc_total",
 		Help:      "Number of pool allocations.",
 	})
-	p.registry.MustRegister(p.poolAlloc)
+	registry.MustRegister(p.poolAlloc)
 
 	p.asyncWorkers = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Name:      "async_workers",
 		Help:      "Number of async workers.",
 	})
-	p.registry.MustRegister(p.asyncWorkers)
+	registry.MustRegister(p.asyncWorkers)
 
 	p.switchCounts = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "switch_counts_total",
 		Help:      "Number of switches.",
 	})
-	p.registry.MustRegister(p.switchCounts)
+	registry.MustRegister(p.switchCounts)
 
 	p.activeChannelDataCounts = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Name:      "active_channel_data_counts",
 		Help:      "Number of active channels.",
 	})
-	p.registry.MustRegister(p.activeChannelDataCounts)
+	registry.MustRegister(p.activeChannelDataCounts)
 
 	p.activeChannelDataSizes = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Name:      "active_channel_data_sizes",
 		Help:      "Number of active channel sizes.",
 	})
-	p.registry.MustRegister(p.activeChannelDataSizes)
+	registry.MustRegister(p.activeChannelDataSizes)
 
 	p.switchLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Name:      "switch_latency",
 		Help:      "Latency of switches.",
 	})
-	p.registry.MustRegister(p.switchLatency)
+	registry.MustRegister(p.switchLatency)
 
 	p.skipSwitchCounts = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "skip_switch_counts_total",
 		Help:      "Number of skip switches.",
 	})
-	p.registry.MustRegister(p.skipSwitchCounts)
+	registry.MustRegister(p.skipSwitchCounts)
 
 	return p
-}
-
-// GetHandler 返回HTTP处理器用于对接各种框架
-func (p *Prometheus) GetHandler() http.Handler {
-	return promhttp.HandlerFor(
-		p.registry,
-		promhttp.HandlerOpts{EnableOpenMetrics: true},
-	)
 }
 
 func (p *Prometheus) CollectSwitcher(enable bool) {
