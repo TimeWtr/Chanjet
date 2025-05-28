@@ -15,7 +15,7 @@
 package metrics
 
 import (
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TimeWtr/Chanjet/_const"
@@ -45,45 +45,50 @@ type Controller interface {
 
 // Write 写数据的指标
 type Write struct {
-	mu                      sync.Mutex // 加锁
-	writeCounts             int64      // 写入的总条数数量
-	writeSizes              int64      // 写入的总大小
-	writeErrors             int64      // 写入失败的错误计数
-	activeChannelDataCounts int64      // 活跃通道中写入数据的条数
-	activeChannelDataSizes  int64      // 活跃通道中写入数据的大小
+	writeCounts             atomic.Int64 // 写入的总条数数量
+	writeSizes              atomic.Int64 // 写入的总大小
+	writeErrors             atomic.Int64 // 写入失败的错误计数
+	activeChannelDataCounts atomic.Int64 // 活跃通道中写入数据的条数
+	activeChannelDataSizes  atomic.Int64 // 活跃通道中写入数据的大小
 }
 
 func (w *Write) Reset() {
-	w.activeChannelDataCounts, w.activeChannelDataSizes = 0, 0
-	w.writeSizes, w.writeCounts, w.writeErrors = 0, 0, 0
+	w.activeChannelDataCounts.Store(0)
+	w.activeChannelDataSizes.Store(0)
+	w.writeSizes.Store(0)
+	w.writeCounts.Store(0)
+	w.writeErrors.Store(0)
 }
 
 // Read 读数据的指标
 type Read struct {
-	mu         sync.Mutex // 加锁
-	readCounts int64      // 写入读取通道的总条数
-	readSizes  int64      // 写入读取通道的总大小
-	readErrors int64      // 写入读取通道错误计数
+	readCounts atomic.Int64 // 写入读取通道的总条数
+	readSizes  atomic.Int64 // 写入读取通道的总大小
+	readErrors atomic.Int64 // 写入读取通道错误计数
 }
 
 func (r *Read) Reset() {
-	r.readCounts, r.readSizes, r.readErrors = 0, 0, 0
+	r.readCounts.Store(0)
+	r.readSizes.Store(0)
+	r.readErrors.Store(0)
 }
 
 type Supporting struct {
-	mu                   sync.Mutex // 加锁
-	asyncWorkerIncCounts int64      // 异步处理协程增加数
-	asyncWorkerDecCounts int64      // 异步处理协程减少数
-	poolAlloc            int32      // 对象池分配次数
-	switchCounts         int64      // 缓冲区切换次数
-	switchLatency        int64      // 切换延迟
-	skipSwitchCounts     int64      // 定时任务跳过通道切换的次数
+	asyncWorkerIncCounts atomic.Int64 // 异步处理协程增加数
+	asyncWorkerDecCounts atomic.Int64 // 异步处理协程减少数
+	poolAlloc            atomic.Int64 // 对象池分配次数
+	switchCounts         atomic.Int64 // 缓冲区切换次数
+	switchLatency        atomic.Int64 // 切换延迟
+	skipSwitchCounts     atomic.Int64 // 定时任务跳过通道切换的次数
 }
 
 func (s *Supporting) Reset() {
-	s.asyncWorkerIncCounts, s.asyncWorkerDecCounts = 0, 0
-	s.switchCounts, s.switchLatency, s.skipSwitchCounts = 0, 0, 0
-	s.poolAlloc = 0
+	s.asyncWorkerIncCounts.Store(0)
+	s.asyncWorkerDecCounts.Store(0)
+	s.switchCounts.Store(0)
+	s.switchLatency.Store(0)
+	s.skipSwitchCounts.Store(0)
+	s.poolAlloc.Store(0)
 }
 
 var _ Recorder = (*BatchCollectImpl)(nil)
@@ -100,17 +105,11 @@ type BatchCollectImpl struct {
 }
 
 func NewBatchCollector(mc Collector) *BatchCollectImpl {
-	const duration = time.Second * 2
+	const duration = time.Second * 5
 	b := &BatchCollectImpl{
-		w: &Write{
-			mu: sync.Mutex{},
-		},
-		r: &Read{
-			mu: sync.Mutex{},
-		},
-		sp: &Supporting{
-			mu: sync.Mutex{},
-		},
+		w:   &Write{},
+		r:   &Read{},
+		sp:  &Supporting{},
 		mc:  mc,
 		t:   time.NewTicker(duration),
 		sem: make(chan struct{}),
@@ -122,63 +121,49 @@ func NewBatchCollector(mc Collector) *BatchCollectImpl {
 }
 
 func (b *BatchCollectImpl) RecordWrite(size int64, err error) {
-	b.w.mu.Lock()
-	defer b.w.mu.Unlock()
-
 	if err != nil {
-		b.w.writeErrors++
+		b.w.writeErrors.Add(1)
 		return
 	}
 
-	b.w.writeCounts += 1
-	b.w.writeSizes += size
-	b.w.activeChannelDataCounts += 1
-	b.w.activeChannelDataSizes += size
+	b.w.writeCounts.Add(1)
+	b.w.writeSizes.Add(size)
+	b.w.activeChannelDataCounts.Add(1)
+	b.w.activeChannelDataSizes.Add(size)
 }
 
 func (b *BatchCollectImpl) RecordRead(size int64, err error) {
-	b.r.mu.Lock()
-	defer b.r.mu.Unlock()
-
 	if err != nil {
-		b.r.readErrors += 1
+		b.r.readErrors.Add(1)
 		return
 	}
 
-	b.r.readCounts += 1
-	b.r.readSizes += size
+	b.r.readCounts.Add(1)
+	b.r.readSizes.Add(size)
 }
 
 func (b *BatchCollectImpl) RecordSwitch(status _const.SwitchStatus, latencySeconds int64) {
-	b.w.mu.Lock()
-	defer b.w.mu.Unlock()
-
 	switch status {
 	case _const.SwitchSkip:
-		b.sp.skipSwitchCounts += 1
+		b.sp.skipSwitchCounts.Add(1)
 	case _const.SwitchSuccess:
-		b.sp.switchCounts++
-		b.sp.switchLatency = latencySeconds
+		b.sp.switchCounts.Add(1)
+		b.sp.switchLatency.Store(latencySeconds)
 	case _const.SwitchFailure:
 	}
 }
 
 func (b *BatchCollectImpl) ObserveAsyncWorker(op _const.OperationType) {
-	b.sp.mu.Lock()
-	defer b.sp.mu.Unlock()
-
 	if op == _const.MetricsIncOp {
-		b.sp.asyncWorkerIncCounts++
+		b.sp.asyncWorkerIncCounts.Add(1)
 		return
 	}
 
-	b.sp.asyncWorkerDecCounts++
+	b.sp.asyncWorkerDecCounts.Add(1)
 }
 
 func (b *BatchCollectImpl) RecordPoolAlloc() {
-	b.sp.mu.Lock()
-	defer b.sp.mu.Unlock()
-	b.sp.poolAlloc++
+	b.sp.poolAlloc.Add(1)
 }
 
 func (b *BatchCollectImpl) Start() {
@@ -206,23 +191,20 @@ func (b *BatchCollectImpl) asyncWorker() {
 
 // report 同步一次指标数据
 func (b *BatchCollectImpl) report() {
-	b.w.mu.Lock()
-	b.mc.ObserveWrite(float64(b.w.writeCounts), float64(b.w.writeSizes), float64(b.w.writeErrors))
-	b.mc.ObserveActive(float64(b.w.activeChannelDataCounts), float64(b.w.activeChannelDataSizes))
+	b.mc.ObserveWrite(float64(b.w.writeCounts.Load()),
+		float64(b.w.writeSizes.Load()),
+		float64(b.w.writeErrors.Load()))
+	b.mc.ObserveActive(float64(b.w.activeChannelDataCounts.Load()),
+		float64(b.w.activeChannelDataSizes.Load()))
 	b.w.Reset()
-	b.w.mu.Unlock()
 
-	b.r.mu.Lock()
-	b.mc.ObserveRead(float64(b.r.readCounts), float64(b.r.readSizes), float64(b.r.readErrors))
+	b.mc.ObserveRead(float64(b.r.readCounts.Load()), float64(b.r.readSizes.Load()), float64(b.r.readErrors.Load()))
 	b.r.Reset()
-	b.r.mu.Unlock()
 
-	b.sp.mu.Lock()
-	b.mc.ObserveAsyncGoroutine(_const.MetricsIncOp, float64(b.sp.asyncWorkerIncCounts))
-	b.mc.ObserveAsyncGoroutine(_const.MetricsDecOp, float64(b.sp.asyncWorkerDecCounts))
-	b.mc.AllocInc(float64(b.sp.poolAlloc))
-	b.mc.SwitchWithLatency(_const.SwitchSuccess, float64(b.sp.switchCounts), float64(b.sp.switchLatency))
-	b.mc.SwitchWithLatency(_const.SwitchSkip, float64(b.sp.skipSwitchCounts), 0)
+	b.mc.ObserveAsyncGoroutine(_const.MetricsIncOp, float64(b.sp.asyncWorkerIncCounts.Load()))
+	b.mc.ObserveAsyncGoroutine(_const.MetricsDecOp, float64(b.sp.asyncWorkerDecCounts.Load()))
+	b.mc.AllocInc(float64(b.sp.poolAlloc.Load()))
+	b.mc.SwitchWithLatency(_const.SwitchSuccess, float64(b.sp.switchCounts.Load()), float64(b.sp.switchLatency.Load()))
+	b.mc.SwitchWithLatency(_const.SwitchSkip, float64(b.sp.skipSwitchCounts.Load()), 0)
 	b.sp.Reset()
-	b.sp.mu.Unlock()
 }
