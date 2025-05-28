@@ -165,25 +165,40 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
+	"time"
 
 	cj "github.com/TimeWtr/Chanjet"
+	"github.com/TimeWtr/Chanjet/_const"
+	"github.com/TimeWtr/Chanjet/metrics"
+	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
+	"golang.org/x/net/context"
 )
 
 func main() {
-	bf, err := cj.NewBuffer(5000, 10)
+	ser := gin.Default()
+	bf, err := cj.NewBuffer(1025*1024*100,
+		cj.WithMetrics(_const.PrometheusCollector))
 	if err != nil {
 		panic(err)
 	}
+	ser.GET("/metrics", gin.WrapH(metrics.GetHandler()))
 
 	ch := bf.Register()
+	exitChan := make(chan struct{}, 1)
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 
 		counter := 0
-		for range ch {
+		for data := range ch {
+			fmt.Println("[收到数据]: ", string(data))
 			counter++
 		}
 		fmt.Println("通道关闭")
@@ -193,9 +208,9 @@ func main() {
 	go func() {
 		defer wg.Done()
 		defer bf.Close()
-		
+
 		template := "2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号为: %d\n"
-		for i := 0; i < 2600000; i++ {
+		for i := 0; i < 3100000000; i++ {
 			err := bf.Write([]byte(fmt.Sprintf(template, i)))
 			if err != nil {
 				fmt.Printf("写入日志失败，错误：%s\n", err.Error())
@@ -205,7 +220,38 @@ func main() {
 		fmt.Println("结束了")
 	}()
 
+	// HTTP 服务协程
+	go func() {
+		defer wg.Done()
+
+		srv := &http.Server{
+			Addr:    ":8080",
+			Handler: ser,
+		}
+
+		// 优雅关闭处理
+		go func() {
+			sigChan := make(chan os.Signal, 1)
+			signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+			<-sigChan
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := srv.Shutdown(ctx); err != nil {
+				fmt.Printf("服务关闭异常: %v\n", err)
+			}
+			exitChan <- struct{}{} // 发送退出信号
+		}()
+
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			fmt.Printf("服务启动失败: %v\n", err)
+			exitChan <- struct{}{}
+		}
+	}()
+
 	wg.Wait()
 	fmt.Println("写入成功")
 }
+
 ```
