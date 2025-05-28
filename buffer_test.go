@@ -23,11 +23,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/TimeWtr/Chanjet/_const"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestNewBuffer(t *testing.T) {
-	bf, err := NewBuffer(5000, 10)
+	bf, err := NewBuffer(5000, WithMetrics(_const.PrometheusCollector))
 	assert.NoError(t, err)
 
 	ch := bf.Register()
@@ -123,7 +124,7 @@ func TestGenerateData(t *testing.T) {
 
 // TestNewBuffer_1B_5000 1Byte大小的数据，缓冲区容量设置为5000条，1s的测试传输数据量为310万
 func TestNewBuffer_1B_5000(t *testing.T) {
-	bf, err := NewBuffer(5000, 10)
+	bf, err := NewBuffer(5000)
 	assert.NoError(t, err)
 
 	data, err := generateData(1)
@@ -163,7 +164,7 @@ func TestNewBuffer_1B_5000(t *testing.T) {
 
 // TestNewBuffer_1B_6000 1Byte大小的数据，缓冲区容量设置为6000条，1s的测试传输数据量为310万
 func TestNewBuffer_1B_6000(t *testing.T) {
-	bf, err := NewBuffer(6000, 10)
+	bf, err := NewBuffer(6000)
 	assert.NoError(t, err)
 
 	data, err := generateData(1)
@@ -203,7 +204,7 @@ func TestNewBuffer_1B_6000(t *testing.T) {
 
 // TestNewBuffer_100B 100Byte大小的数据，缓冲区容量设置为5000条，1s的测试传输数据量为310万
 func TestNewBuffer_100B_5000(t *testing.T) {
-	bf, err := NewBuffer(5000, 10)
+	bf, err := NewBuffer(5000)
 	assert.NoError(t, err)
 
 	data, err := generateData(100)
@@ -243,7 +244,7 @@ func TestNewBuffer_100B_5000(t *testing.T) {
 
 // TestNewBuffer_1KB_5000 1KB大小的数据，缓冲区容量设置为5000条，1s的测试传输数据量为310万
 func TestNewBuffer_1KB_5000(t *testing.T) {
-	bf, err := NewBuffer(5000, 10)
+	bf, err := NewBuffer(5000)
 	assert.NoError(t, err)
 
 	data, err := generateData(1024 * 10)
@@ -283,7 +284,7 @@ func TestNewBuffer_1KB_5000(t *testing.T) {
 
 // TestNewBuffer_10KB_5000 1KB大小的数据，缓冲区容量设置为5000条，1s的测试传输数据量为310万
 func TestNewBuffer_10KB_5000(t *testing.T) {
-	bf, err := NewBuffer(10000, 10)
+	bf, err := NewBuffer(10000)
 	assert.NoError(t, err)
 
 	data, err := generateData(1024)
@@ -322,7 +323,7 @@ func TestNewBuffer_10KB_5000(t *testing.T) {
 }
 
 func BenchmarkNewBuffer(b *testing.B) {
-	bf, err := NewBuffer(5000, 10)
+	bf, err := NewBuffer(5000, WithMetrics(_const.PrometheusCollector))
 	assert.NoError(b, err)
 
 	ch := bf.Register()
@@ -372,7 +373,7 @@ func BenchmarkNewBuffer(b *testing.B) {
 }
 
 func BenchmarkNewBuffer_No_Log(b *testing.B) {
-	bf, err := NewBuffer(5000, 10)
+	bf, err := NewBuffer(5000)
 	assert.NoError(b, err)
 
 	ch := bf.Register()
@@ -429,7 +430,7 @@ var testCases = []struct {
 func BenchmarkBuffer(b *testing.B) {
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
-			buffer, _ := NewBuffer(1024*1024, 0) // 1MB容量
+			buffer, _ := NewBuffer(1024 * 1024)
 			defer buffer.Close()
 
 			dataPool := make([][]byte, tc.batchSize)
@@ -471,8 +472,7 @@ func BenchmarkBuffer_Write(b *testing.B) {
 
 	for _, size := range sizes {
 		b.Run(formatSize(size), func(b *testing.B) {
-			// 初始化缓冲区 (20MB容量)
-			buf, _ := NewBuffer(20*1024*1024, 2)
+			buf, _ := NewBuffer(20*1024*1024, WithMetrics(_const.PrometheusCollector))
 			defer buf.Close()
 
 			// 预填充测试数据

@@ -1,6 +1,4 @@
 # Chanjet
-基于Go Channel、Buffer Pool和零拷贝实现的高性能双缓冲通道。
-
 <div align="center">
 
 <a title="Build Status" target="_blank" href="https://github.com/TimeWtr/Chanjet/actions?query=workflow%3ATests"><img>
@@ -12,6 +10,8 @@
 <a title="Doc for Poolx" target="_blank" href="https://pkg.go.dev/github.com/TimeWtr/Chanjet?tab=doc"><img src="https://img.shields.io/badge/go.dev-doc-007d9c?style=flat-square&logo=read-the-docs" /></a>
 </div>
 
+基于Go Channel、Buffer Pool和零拷贝实现的高性能双缓冲通道。
+
 ## 📊 Features
 🔹 **双写缓冲区设计**：active通道用于实时接收数据，passive通道用于异步处理数据，当active满足
 切换逻辑执行通道轮转后，passive转换为active实时写入通道接收数据，active转换成passive异步处理通道。
@@ -22,10 +22,18 @@
 🔹 **复合通道轮转策略**：
     
 - 当active通道中数据大小触发一定的阈值，比如最大容量的80%，立即进行轮转。
-- 当达到一定时间，比如300MS还没有进行通道轮转时，后台定时程序立即触发通道轮转，防止因长期没有新数据写入
+- 当达到一定时间，比如5s还没有进行通道轮转时，后台定时程序立即触发通道轮转，防止因长期没有新数据写入
 导致接收方无法获取通道内数据的问题，也尽可能减少数据丢失的风险。
 
 🔹 **无锁化设计**：双缓冲通道不使用加锁保护通道切换，使用原子状态实现并发安全的通道切换，大大提升了性能。
+
+🔹 **缓冲池设计**：使用缓冲池设计，通道切换时复用池中可用通道，防止出现频繁的通道创建和销毁的开销。
+
+🔹 **完善监控的设计**：完善的监控指标设计，支持Prometheus和OpenTelemetry，目前已支持Prometheus指标，抽象批量上报接口，
+上报指标数据定时批量刷新到底层指标采集器，3700000条数据写入单条指标上报总耗时1.5秒，批量刷新指标总耗时<1.1秒，耗时减少400毫秒
+左右，大大提升了性能。
+> 总耗时：数据写入缓冲区+异步写入readq读取通道+指标上报
+
 
 ## 🚀 Performance
 - **系统架构**: darwin/arm64
@@ -34,41 +42,118 @@
 - **测试命令**: `go test -bench="^BenchmarkBuffer_Write$" -run="^$" -cpu=1 -count=5 -benchmem`
 
 ### 128B 测试结果
-| 测试用例                  | 操作次数   | 单次耗时 (ns/op) | 内存分配 (B/op) | 分配次数 |
-|--------------------------|-----------|------------------|-----------------|----------|
-| BenchmarkBuffer_Write/128B | 28,357,896 | 46.98            | 35              | 0        |
-| BenchmarkBuffer_Write/128B | 26,224,845 | 52.54            | 38              | 0        |
-| BenchmarkBuffer_Write/128B | 22,811,332 | 54.09            | 44              | 0        |
-| BenchmarkBuffer_Write/128B | 26,970,789 | 55.06            | 55              | 0        |
-| BenchmarkBuffer_Write/128B | 23,115,716 | 66.27            | 87              | 0        |
+| 测试用例                   | 操作次数   | 单次耗时 (ns/op) | 内存分配 (B/op) | 分配次数 |
+|---------------------------|-----------|------------------|-----------------|----------|
+| BenchmarkBuffer_Write/128B | 9,593,606 | 138.6            | 157             | 0        |
+| BenchmarkBuffer_Write/128B | 8,721,645 | 128.9            | 173             | 0        |
+| BenchmarkBuffer_Write/128B | 8,517,952 | 133.1            | 118             | 0        |
+| BenchmarkBuffer_Write/128B | 8,861,853 | 155.2            | 113             | 0        |
+| BenchmarkBuffer_Write/128B | 8,608,171 | 152.7            | 116             | 0        |
 
 ### 64KB 测试结果
-| 测试用例                   | 操作次数   | 单次耗时 (ns/op) | 内存分配 (B/op) | 分配次数 |
-|---------------------------|-----------|------------------|-----------------|----------|
-| BenchmarkBuffer_Write/64KB | 30,947,586 | 40.22            | 32              | 0        |
-| BenchmarkBuffer_Write/64KB | 29,636,215 | 41.79            | 33              | 0        |
-| BenchmarkBuffer_Write/64KB | 30,254,332 | 41.37            | 49              | 0        |
-| BenchmarkBuffer_Write/64KB | 27,079,902 | 42.48            | 37              | 0        |
-| BenchmarkBuffer_Write/64KB | 27,172,502 | 41.52            | 55              | 0        |
-| BenchmarkBuffer_Write/64KB#01 | 27,797,377 | 40.25            | 36              | 0        |
-| BenchmarkBuffer_Write/64KB#01 | 30,421,725 | 43.51            | 49              | 0        |
-| BenchmarkBuffer_Write/64KB#01 | 29,338,390 | 43.51            | 51              | 0        |
-| BenchmarkBuffer_Write/64KB#01 | 26,996,911 | 41.46            | 37              | 0        |
-| BenchmarkBuffer_Write/64KB#01 | 27,486,892 | 45.02            | 36              | 0        |
+| 测试用例                    | 操作次数  | 单次耗时 (ns/op) | 内存分配 (B/op) | 分配次数 |
+|----------------------------|----------|------------------|-----------------|----------|
+| BenchmarkBuffer_Write/64KB  | 7,249,588 | 171.6            | 208             | 0        |
+| BenchmarkBuffer_Write/64KB  | 9,140,080 | 140.6            | 110             | 0        |
+| BenchmarkBuffer_Write/64KB  | 7,035,427 | 161.3            | 214             | 0        |
+| BenchmarkBuffer_Write/64KB  | 8,811,381 | 141.9            | 114             | 0        |
+| BenchmarkBuffer_Write/64KB  | 6,769,135 | 187.4            | 297             | 0        |
+| BenchmarkBuffer_Write/64KB#01 | 8,653,538 | 142.8            | 116             | 0        |
+| BenchmarkBuffer_Write/64KB#01 | 7,285,388 | 168.3            | 276             | 0        |
+| BenchmarkBuffer_Write/64KB#01 | 7,607,090 | 166.5            | 198             | 0        |
+| BenchmarkBuffer_Write/64KB#01 | 7,639,873 | 146.3            | 131             | 0        |
+| BenchmarkBuffer_Write/64KB#01 | 8,885,304 | 254.1            | 339             | 0        |
 
 ### 1MB 测试结果
-| 测试用例                   | 操作次数   | 单次耗时 (ns/op) | 内存分配 (B/op) | 分配次数 |
-|---------------------------|-----------|------------------|-----------------|----------|
-| BenchmarkBuffer_Write/1MB | 18,422,181 | 154.1            | 409             | 0        |
-| BenchmarkBuffer_Write/1MB | 11,433,486 | 191.2            | 396             | 0        |
-| BenchmarkBuffer_Write/1MB | 13,047,794 | 88.17            | 385             | 0        |
-| BenchmarkBuffer_Write/1MB | 14,501,538 | 139.9            | 416             | 0        |
-| BenchmarkBuffer_Write/1MB | 13,242,762 | 170.8            | 418             | 0        |
+| 测试用例                   | 操作次数  | 单次耗时 (ns/op) | 内存分配 (B/op) | 分配次数 |
+|---------------------------|----------|------------------|-----------------|----------|
+| BenchmarkBuffer_Write/1MB | 8,231,407 | 179.2            | 489             | 0        |
+| BenchmarkBuffer_Write/1MB | 6,488,708 | 175.0            | 387             | 0        |
+| BenchmarkBuffer_Write/1MB | 6,460,352 | 214.5            | 545             | 0        |
+| BenchmarkBuffer_Write/1MB | 6,894,111 | 214.3            | 657             | 0        |
+| BenchmarkBuffer_Write/1MB | 6,569,706 | 169.1            | 383             | 0        |
 
 > 1. **操作次数**: 列显示测试框架自动计算的`b.N`值
 > 2. **内存分配**: 包含通道操作和数据复制的总开销
 > 3. **测试组数**: 所有测试结果均运行5次(`-count=5`)，其中64KB包含两组测试(#01标识)
 
+## 监控指标说明
+
+### 全局命名空间
+所有指标均以 `Chanjet_` 作为命名空间前缀
+
+---
+
+### 写入相关指标
+| 指标名称                           | 类型       | 标签/维度       | 描述                                                                 |
+|------------------------------------|------------|-----------------|----------------------------------------------------------------------|
+| `Chanjet_write_counts_total`       | CounterVec | `result`        | 写入操作总数（标签值：`success` 成功 / `failure` 失败）               |
+| `Chanjet_write_sizes_total`        | Counter    | -               | 已写入数据的总字节数（单位：字节）                                   |
+| `Chanjet_write_errors_total`       | Counter    | -               | 写入失败的次数（含网络错误、校验失败等场景）                         |
+
+---
+
+### 读取相关指标
+| 指标名称                           | 类型       | 标签/维度       | 描述                                                                 |
+|------------------------------------|------------|-----------------|----------------------------------------------------------------------|
+| `Chanjet_read_counts_total`        | CounterVec | `result`        | 读取操作总数（标签值：`success` 成功 / `failure` 失败）               |
+| `Chanjet_read_sizes_total`         | Counter    | -               | 已读取数据的总字节数（单位：字节）                                   |
+| `Chanjet_read_errors_total`        | Counter    | -               | 读取失败的次数（含超时、校验失败等场景）                             |
+
+---
+
+### 缓冲区切换指标
+| 指标名称                           | 类型       | 描述                                                                 |
+|------------------------------------|------------|----------------------------------------------------------------------|
+| `Chanjet_switch_counts_total`      | Counter    | 缓冲区切换操作总次数                                                 |
+| `Chanjet_switch_latency`           | Histogram  | 切换延迟分布（单位：秒，预设桶边界：[0.001, 0.005, 0.01, 0.05, 0.1]）|
+| `Chanjet_skip_switch_counts_total` | Counter    | 定时任务跳过切换的次数（未达到切换条件时计数）                       |
+
+---
+
+### 异步处理指标
+| 指标名称                           | 类型       | 描述                                                                 |
+|------------------------------------|------------|----------------------------------------------------------------------|
+| `Chanjet_async_workers`            | Gauge      | 当前活跃的异步工作协程数量                                           |
+
+---
+
+### 缓冲池指标
+| 指标名称                           | 类型       | 描述                                                                 |
+|------------------------------------|------------|----------------------------------------------------------------------|
+| `Chanjet_pool_alloc_total`         | Counter    | 对象池内存分配次数                                                   |
+
+---
+
+### 通道状态指标
+| 指标名称                           | 类型       | 描述                                                                 |
+|------------------------------------|------------|----------------------------------------------------------------------|
+| `Chanjet_active_channel_data_counts` | Gauge    | 当前活跃通道中未处理的数据条目数量                                   |
+| `Chanjet_active_channel_data_sizes`  | Gauge    | 当前活跃通道中未处理的数据总大小（单位：字节）                       |
+
+---
+
+### 指标类型说明
+| 类型        | 特性                                                                 |
+|-------------|----------------------------------------------------------------------|
+| **Counter**   | 只增不减的累积计数器，适用于请求数、错误数等统计                     |
+| **Gauge**     | 可任意变化的瞬时值，适用于实时资源用量（如内存、协程数）             |
+| **Histogram** | 测量观测值的分布，自动计算分位数，适用于延迟、响应大小等指标         |
+| **CounterVec**| 带标签的计数器，支持多维细分统计（如按成功/失败状态分类）            |
+
+---
+
+## 示例 PromQL 查询
+```promql
+# 计算写入吞吐量（次/秒）
+rate(Chanjet_write_counts_total[1m])
+
+# 获取活跃通道数据积压告警（>1MB 持续5分钟）
+Chanjet_active_channel_data_sizes > 1e6
+
+# 统计切换延迟的P99值
+histogram_quantile(0.99, sum(rate(Chanjet_switch_latency_bucket[5m])) by (le))
+```
 
 ## 📦 Installation
 ```bash

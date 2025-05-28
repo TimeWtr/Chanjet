@@ -22,8 +22,9 @@ var (
 )
 
 var (
-	ErrPoolNil     = errors.New("pool returned nil object")
-	ErrPoolType    = errors.New("pool returned invalid type")
-	ErrPoolEmpty   = errors.New("pool returned empty object")
-	ErrPoolMaxSize = errors.New("pool object over max size")
+	ErrPoolNil                 = errors.New("pool returned nil object")
+	ErrPoolType                = errors.New("pool returned invalid type")
+	ErrPoolEmpty               = errors.New("pool returned empty object")
+	ErrPoolMaxSize             = errors.New("pool object over max size")
+	ErrReadChannelWriteTimeout = errors.New("readq channel write timeout")
 )
