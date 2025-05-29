@@ -51,8 +51,8 @@ func WithSizeThreshold(size int64) Options {
 }
 
 // WithPercentThreshold 设置通道数量限制阈值，当设置为80%时，通道中的数据条数
-// 达到总容量的80%时就会触发通道切换
-func WithPercentThreshold(percentThreshold float64) Options {
+// 达到总容量的80%时就会触发通道切换，范围（0-100）
+func WithPercentThreshold(percentThreshold int) Options {
 	return func(buffer *Buffer) error {
 		buffer.sc.percentThreshold = percentThreshold
 		return nil
@@ -63,7 +63,8 @@ func WithPercentThreshold(percentThreshold float64) Options {
 // 会每隔1s执行一次通道切换，确保数据不会长期积压。
 func WithTimeThreshold(timeThreshold time.Duration) Options {
 	return func(buffer *Buffer) error {
-		buffer.sc.timeThreshold = timeThreshold
+		buffer.sc.timeThreshold = timeThreshold.Milliseconds()
+		buffer.sc.interval = timeThreshold
 		return nil
 	}
 }

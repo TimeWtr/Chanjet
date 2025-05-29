@@ -22,13 +22,14 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/TimeWtr/Chanjet/_const"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestNewBuffer(t *testing.T) {
-	bf, err := NewBuffer(5000, WithMetrics(_const.PrometheusCollector))
+	bf, err := NewBuffer(WithMetrics(_const.PrometheusCollector))
 	assert.NoError(t, err)
 
 	ch := bf.Register()
@@ -38,9 +39,23 @@ func TestNewBuffer(t *testing.T) {
 		defer wg.Done()
 
 		counter := 0
-		for range ch {
-			counter++
+		closed := false
+		for !closed {
+			select {
+			case dataSli, ok := <-ch:
+				if !ok {
+					closed = true
+					break
+				}
+
+				for i := 0; i < len(dataSli); i++ {
+					counter++
+					t.Logf("[Recv] %s", string(dataSli[i]))
+				}
+			default:
+			}
 		}
+
 		t.Log("通道关闭")
 		t.Logf("接收到日志数据条数: %d", counter)
 	}()
@@ -49,16 +64,23 @@ func TestNewBuffer(t *testing.T) {
 		defer wg.Done()
 		defer bf.Close()
 
-		// 64KB数据，每秒钟的传输量约为250万条
+		errCounts := 0
+		successCounts := 0
+		// 64KB数据，每秒钟的传输量约为370万条
 		template := "2025-05-12 12:12:00 [Info] 日志写入测试，当前的序号为: %d\n"
 		for i := 0; i < 3700000; i++ {
 			err = bf.Write([]byte(fmt.Sprintf(template, i)))
 			if err != nil {
+				errCounts++
 				t.Logf("写入日志失败，错误：%s\n", err.Error())
 				continue
 			}
+			successCounts++
 		}
+
 		t.Log("结束了")
+		t.Log("[Send] success counts", successCounts)
+		t.Log("[Send] error counts", errCounts)
 	}()
 
 	wg.Wait()
@@ -124,7 +146,7 @@ func TestGenerateData(t *testing.T) {
 
 // TestNewBuffer_1B_5000 1Byte大小的数据，缓冲区容量设置为5000条，1s的测试传输数据量为310万
 func TestNewBuffer_1B_5000(t *testing.T) {
-	bf, err := NewBuffer(5000)
+	bf, err := NewBuffer()
 	assert.NoError(t, err)
 
 	data, err := generateData(1)
@@ -164,7 +186,7 @@ func TestNewBuffer_1B_5000(t *testing.T) {
 
 // TestNewBuffer_1B_6000 1Byte大小的数据，缓冲区容量设置为6000条，1s的测试传输数据量为310万
 func TestNewBuffer_1B_6000(t *testing.T) {
-	bf, err := NewBuffer(6000)
+	bf, err := NewBuffer()
 	assert.NoError(t, err)
 
 	data, err := generateData(1)
@@ -204,7 +226,7 @@ func TestNewBuffer_1B_6000(t *testing.T) {
 
 // TestNewBuffer_100B 100Byte大小的数据，缓冲区容量设置为5000条，1s的测试传输数据量为310万
 func TestNewBuffer_100B_5000(t *testing.T) {
-	bf, err := NewBuffer(5000)
+	bf, err := NewBuffer()
 	assert.NoError(t, err)
 
 	data, err := generateData(100)
@@ -244,7 +266,7 @@ func TestNewBuffer_100B_5000(t *testing.T) {
 
 // TestNewBuffer_1KB_5000 1KB大小的数据，缓冲区容量设置为5000条，1s的测试传输数据量为310万
 func TestNewBuffer_1KB_5000(t *testing.T) {
-	bf, err := NewBuffer(5000)
+	bf, err := NewBuffer()
 	assert.NoError(t, err)
 
 	data, err := generateData(1024 * 10)
@@ -284,7 +306,7 @@ func TestNewBuffer_1KB_5000(t *testing.T) {
 
 // TestNewBuffer_10KB_5000 1KB大小的数据，缓冲区容量设置为5000条，1s的测试传输数据量为310万
 func TestNewBuffer_10KB_5000(t *testing.T) {
-	bf, err := NewBuffer(10000)
+	bf, err := NewBuffer()
 	assert.NoError(t, err)
 
 	data, err := generateData(1024)
@@ -323,7 +345,7 @@ func TestNewBuffer_10KB_5000(t *testing.T) {
 }
 
 func BenchmarkNewBuffer(b *testing.B) {
-	bf, err := NewBuffer(5000, WithMetrics(_const.PrometheusCollector))
+	bf, err := NewBuffer(WithMetrics(_const.PrometheusCollector))
 	assert.NoError(b, err)
 
 	ch := bf.Register()
@@ -373,7 +395,7 @@ func BenchmarkNewBuffer(b *testing.B) {
 }
 
 func BenchmarkNewBuffer_No_Log(b *testing.B) {
-	bf, err := NewBuffer(5000)
+	bf, err := NewBuffer()
 	assert.NoError(b, err)
 
 	ch := bf.Register()
@@ -430,7 +452,7 @@ var testCases = []struct {
 func BenchmarkBuffer(b *testing.B) {
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
-			buffer, _ := NewBuffer(1024 * 1024)
+			buffer, _ := NewBuffer()
 			defer buffer.Close()
 
 			dataPool := make([][]byte, tc.batchSize)
@@ -450,13 +472,6 @@ func BenchmarkBuffer(b *testing.B) {
 					}
 				}
 			})
-
-			// 验证数据完整性
-			var total int
-			for d := range buffer.Register() {
-				total += len(d)
-			}
-			b.Logf("数据校验: 写入量 %d MB", total/(1024*1024))
 		})
 	}
 }
@@ -472,19 +487,33 @@ func BenchmarkBuffer_Write(b *testing.B) {
 
 	for _, size := range sizes {
 		b.Run(formatSize(size), func(b *testing.B) {
-			buf, _ := NewBuffer(20*1024*1024, WithMetrics(_const.PrometheusCollector))
+			buf, _ := NewBuffer(WithMetrics(_const.PrometheusCollector))
 			defer buf.Close()
 
-			// 预填充测试数据
-			data := bytes.Repeat([]byte("x"), size)
+			ch := buf.Register()
+			sem := make(chan struct{})
+			go func() {
+				for {
+					select {
+					case <-sem:
+						return
+					case _, ok := <-ch:
+						if !ok {
+							return
+						}
+					}
+				}
+			}()
 
+			data := bytes.Repeat([]byte("x"), size)
 			b.ResetTimer()
-			b.SetParallelism(8) // 模拟并发写入
+			b.SetParallelism(8)
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
 					_ = buf.Write(data)
 				}
 			})
+			close(sem)
 		})
 	}
 }
@@ -497,5 +526,50 @@ func formatSize(bytes int) string {
 		return "64KB"
 	default:
 		return "128B"
+	}
+}
+
+func BenchmarkNativeChan_Write(b *testing.B) {
+	sizes := []int{
+		128,     // 小数据 (128B)
+		1024,    // 中数据 (1KB)
+		65536,   // 大数据 (64KB)
+		1 << 20, // 超大数据 (1MB)
+	}
+
+	for _, size := range sizes {
+		b.Run(formatSize(size), func(b *testing.B) {
+			ch := make(chan []byte, 4096)
+			defer close(ch)
+
+			sem := make(chan struct{})
+			go func() {
+				for {
+					select {
+					case <-sem:
+						return
+					case _, ok := <-ch:
+						if !ok {
+							return
+						}
+					}
+				}
+			}()
+
+			data := bytes.Repeat([]byte("x"), size)
+			timeout := time.After(10 * time.Second)
+
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					select {
+					case ch <- data:
+					case <-timeout:
+						b.Fatal("写入超时")
+					}
+				}
+			})
+			close(sem)
+		})
 	}
 }

@@ -14,7 +14,9 @@
 
 package metrics
 
-import "github.com/TimeWtr/Chanjet/_const"
+import (
+	"github.com/TimeWtr/Chanjet/_const"
+)
 
 // Collector 指标监控接口
 type Collector interface {
