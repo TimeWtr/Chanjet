@@ -30,7 +30,7 @@ type BatchCollector interface {
 // Recorder 提供给调用方的接口
 type Recorder interface {
 	RecordWrite(size int64, err error)                             // 上报写数据
-	RecordRead(size int64, err error)                              // 上报读数据
+	RecordRead(count, size int64, err error)                       // 上报读数据
 	RecordSwitch(status _const.SwitchStatus, latencySeconds int64) // 上报通道切换数据
 	ObserveAsyncWorker(op _const.OperationType)                    // 上报异步goroutine数据
 	RecordPoolAlloc()                                              // 上报池对象创建数据
@@ -132,13 +132,13 @@ func (b *BatchCollectImpl) RecordWrite(size int64, err error) {
 	b.w.activeChannelDataSizes.Add(size)
 }
 
-func (b *BatchCollectImpl) RecordRead(size int64, err error) {
+func (b *BatchCollectImpl) RecordRead(count, size int64, err error) {
 	if err != nil {
 		b.r.readErrors.Add(1)
 		return
 	}
 
-	b.r.readCounts.Add(1)
+	b.r.readCounts.Add(count)
 	b.r.readSizes.Add(size)
 }
 

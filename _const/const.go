@@ -20,7 +20,7 @@ const (
 	// DefaultSizeThreshold 缓冲区的切换大小阈值
 	DefaultSizeThreshold = 1024 * 1024 * 100
 	// DefaultPercentThreshold 缓冲区切换的比例阈值
-	DefaultPercentThreshold = 0.8
+	DefaultPercentThreshold = 80
 	// DefaultTimeThreshold 缓冲区切换的时间阈值
 	DefaultTimeThreshold = 5 * time.Second
 )
@@ -79,3 +79,8 @@ func (s SwitchStatus) String() string {
 		return "unknown"
 	}
 }
+
+const (
+	WritingStatus = iota
+	ClosedStatus
+)
