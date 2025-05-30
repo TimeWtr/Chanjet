@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/TimeWtr/Chanjet/_const"
+	"github.com/TimeWtr/Chanjet/errorx"
 	"github.com/TimeWtr/Chanjet/metrics"
 )
 
@@ -61,6 +62,7 @@ type Buffer struct {
 	active              chan []byte            // 活跃缓冲区
 	passive             chan []byte            // 异步刷盘缓冲区
 	readq               chan [][]byte          // 异步批量读取通道
+	lock                sync.RWMutex           // 切换读写锁
 	sig                 chan struct{}          // 关闭缓冲区的信号
 	size                atomic.Int64           // 活跃缓冲区写入的字节大小
 	swapLock            atomic.Uint32          // 原子保护
@@ -221,29 +223,47 @@ func (b *Buffer) needTickerSwitch() bool {
 
 func (b *Buffer) Write(p []byte) error {
 	if b.status.Load() == _const.ClosedStatus {
-		return ErrBufferClose
+		return errorx.ErrBufferClose
 	}
 
 	pSize := len(p)
-	if b.needSwitch(int64(pSize)) {
+	if !b.needSwitch(int64(pSize)) {
 		select {
 		case <-b.sig:
-			return ErrBufferClose
-		case b.processing <- struct{}{}:
-			b.sw()
+			b.mc.RecordWrite(int64(pSize), errorx.ErrBufferClose)
+			return errorx.ErrBufferClose
+		case b.active <- p:
+			b.size.Add(int64(pSize))
+			b.mc.RecordWrite(int64(pSize), nil)
+			return nil
+		default:
+			b.mc.RecordWrite(int64(pSize), errorx.ErrBufferFull)
+			return b.handleBufferFull(p)
+		}
+	}
+
+	select {
+	case b.processing <- struct{}{}:
+		b.sw()
+	default:
+	}
+
+	for {
+		if b.swapLock.Load() == 0 {
+			break
 		}
 	}
 
 	select {
 	case <-b.sig:
-		b.mc.RecordWrite(int64(pSize), ErrBufferClose)
-		return ErrBufferClose
+		b.mc.RecordWrite(int64(pSize), errorx.ErrBufferClose)
+		return errorx.ErrBufferClose
 	case b.active <- p:
 		b.size.Add(int64(pSize))
 		b.mc.RecordWrite(int64(pSize), nil)
 		return nil
 	default:
-		b.mc.RecordWrite(int64(pSize), ErrBufferFull)
+		b.mc.RecordWrite(int64(pSize), errorx.ErrBufferFull)
 		return b.handleBufferFull(p)
 	}
 }
@@ -256,14 +276,14 @@ func (b *Buffer) Register() <-chan [][]byte {
 func (b *Buffer) handleBufferFull(p []byte) error {
 	select {
 	case <-b.sig:
-		return ErrBufferClose
+		return errorx.ErrBufferClose
 	case b.processing <- struct{}{}:
 		b.sw()
 	default:
 	}
 
 	if b.status.Load() == _const.ClosedStatus {
-		return ErrBufferClose
+		return errorx.ErrBufferClose
 	}
 
 	select {
@@ -273,7 +293,7 @@ func (b *Buffer) handleBufferFull(p []byte) error {
 		b.mc.RecordWrite(size, nil)
 		return nil
 	default:
-		return ErrBufferFull
+		return errorx.ErrBufferFull
 	}
 }
 
@@ -291,11 +311,13 @@ func (b *Buffer) sw() {
 		b.mc.RecordWrite(0, nil)
 	}()
 
+	b.lock.Lock()
 	active := b.active
 	b.mc.ObserveAsyncWorker(_const.MetricsIncOp)
 
 	newBuf, _ := b.channelPool.Get().(chan []byte)
 	b.active, b.passive = b.passive, newBuf
+	b.lock.Unlock()
 	b.size.Store(0)
 	b.writeCount.Store(0)
 
@@ -436,7 +458,7 @@ func (b *Buffer) asyncWork() {
 		case <-b.sig:
 			return
 		case <-ticker.C:
-			if b.needTickerSwitch() {
+			if !b.needTickerSwitch() {
 				b.mc.RecordSwitch(_const.SwitchSkip, 0)
 				continue
 			}

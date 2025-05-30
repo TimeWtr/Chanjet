@@ -82,5 +82,6 @@ func (s SwitchStatus) String() string {
 
 const (
 	WritingStatus = iota
+	PendingStatus
 	ClosedStatus
 )
