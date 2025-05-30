@@ -33,12 +33,6 @@ var bytesPool = sync.Pool{
 	},
 }
 
-func init() {
-	for i := 0; i < bytesPoolPreloads; i++ {
-		bytesPool.Put(bytesPool.Get())
-	}
-}
-
 func GetBytesPool(size int64) *[]byte {
 	ptr := bytesPool.Get().(*[]byte)
 	buf := *ptr
