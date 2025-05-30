@@ -15,6 +15,7 @@
 package core
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -28,6 +29,7 @@ const (
 	SmallDataThreshold      = 1024            // 小数据阈值（<1KB）
 	LargeDataThreshold      = 32 * 1024       // 大数据阈值（>32KB）
 	MediumDataCacheDuration = 5 * time.Second // 中型数据的缓存时间
+	SwitchCheckInterval     = 5 * time.Millisecond
 )
 
 type SmartBuffer struct {
@@ -46,7 +48,7 @@ func newSmartBuffer(size int32) *SmartBuffer {
 		head:   -1,
 		tail:   -1,
 		count:  0,
-		size:   int32(size),
+		size:   size,
 		status: _const.WritingStatus,
 		pm:     pools.NewLifeCycleManager(),
 	}
@@ -157,6 +159,7 @@ func (s *SmartBuffer) push(ptr unsafe.Pointer, size int32) bool {
 	if pos < 0 {
 		pos += s.size
 	}
+	pos %= s.size
 	atomic.StorePointer(&s.buf[pos], ptr)
 
 	return true
@@ -232,26 +235,44 @@ func (s *SmartBuffer) Close() {
 
 // DoubleBuffer 双缓冲区设计
 type DoubleBuffer struct {
-	active      *SmartBuffer  // 活跃缓冲区
-	passive     *SmartBuffer  // 异步读取缓冲区
-	stop        chan struct{} // 关闭缓冲区信号
-	size        int32         // 	缓冲区的容量
-	count       int32         // 当前活跃缓冲区写入的数据条数
-	status      int32         // 缓冲区状态
-	lastSwitch  int64         // 上次切换的时间，毫秒级别
-	interval    time.Duration // 后台轮转的时间窗口
-	swapSignal  chan struct{} // 阻塞进行切换的通知
-	swapPending int32         // 切换阻塞状态
+	active      *SmartBuffer      // 活跃缓冲区
+	passive     *SmartBuffer      // 异步读取缓冲区
+	stop        chan struct{}     // 关闭缓冲区信号
+	size        int32             // 缓冲区的容量
+	count       int32             // 当前活跃缓冲区写入的数据条数
+	status      int32             // 缓冲区状态
+	lastSwitch  int64             // 上次切换的时间，毫秒级别
+	interval    time.Duration     // 后台轮转的时间窗口
+	swapSignal  chan struct{}     // 阻塞进行切换的通知
+	swapPending int32             // 切换阻塞状态
+	directCond  *sync.Cond        // 等待读取的条件
+	directMutex sync.RWMutex      // 直接读取的锁
+	pool        sync.Pool         // 缓冲区对象池
+	readq       [][]byte          // 批量安全读取的缓冲区
+	taskQueue   chan *SmartBuffer // 需要被读取处理的缓冲区队列
+	wg          sync.WaitGroup    // 同步控制
 }
 
-func NewDoubleBuffer(size int32, interval time.Duration) *DoubleBuffer {
-	return &DoubleBuffer{
+func NewDoubleBuffer(size int32) *DoubleBuffer {
+	d := &DoubleBuffer{
 		active:     newSmartBuffer(size),
 		passive:    newSmartBuffer(size),
 		stop:       make(chan struct{}),
 		size:       size,
 		lastSwitch: time.Now().UnixMilli(),
 	}
+
+	d.pool = sync.Pool{
+		New: func() interface{} {
+			return newSmartBuffer(size)
+		},
+	}
+
+	d.active, _ = d.pool.Get().(*SmartBuffer)
+	d.passive, _ = d.pool.Get().(*SmartBuffer)
+	d.directCond = sync.NewCond(&d.directMutex)
+
+	return d
 }
 
 func (d *DoubleBuffer) Write(p []byte) error {
@@ -307,7 +328,44 @@ func (d *DoubleBuffer) switchChannel() {
 		return
 	}
 
-	//oldActive := atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.active)))
-	//oldPassive := atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.passive)))
-	//
+	oldActive := atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.active)))
+	oldPassive := atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.passive)))
+	newBuf, _ := d.pool.Get().(*SmartBuffer)
+
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&d.active)), oldPassive)
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&d.passive)),
+		unsafe.Pointer(newBuf))
+
+	d.directCond.Broadcast()
+	oldActiveVal := (*SmartBuffer)(oldActive)
+	select {
+	case d.taskQueue <- oldActiveVal:
+	default:
+		// 任务队列阻塞，直接处理
+		
+	}
+
+}
+
+func (d *DoubleBuffer) swapMonitor() {
+	ticker := time.NewTicker(SwitchCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.stop:
+			return
+		case <-ticker.C:
+			if d.needSwitch() {
+				if atomic.CompareAndSwapInt32(&d.swapPending, 0, 1) {
+					select {
+					case d.swapSignal <- struct{}{}:
+					default:
+					}
+				}
+			}
+		case <-d.swapSignal:
+			d.switchChannel()
+		}
+	}
 }
