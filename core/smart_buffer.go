@@ -74,7 +74,7 @@ func (s *SmartBuffer) write(p []byte) bool {
 		s.pm.BigDataPool.Put(uintptr(ptr), p)
 		return s.push(ptr, int32(l))
 	default:
-		s.pm.MediumPool.Set(uintptr(ptr), time.Now())
+		s.pm.MediumPool.Put(uintptr(ptr), time.Now())
 		return s.push(ptr, int32(l))
 	}
 }
@@ -289,6 +289,12 @@ func (d *DoubleBuffer) Write(p []byte) error {
 		}
 	}
 
+	// 尝试写入缓冲区
+	if d.active.write(p) {
+		if atomic.LoadInt32(&d.passive.count) == 0 {
+			d.directCond.Broadcast()
+		}
+	}
 	// TODO 处理写入
 	return nil
 }
@@ -338,13 +344,8 @@ func (d *DoubleBuffer) switchChannel() {
 
 	d.directCond.Broadcast()
 	oldActiveVal := (*SmartBuffer)(oldActive)
-	select {
-	case d.taskQueue <- oldActiveVal:
-	default:
-		// 任务队列阻塞，直接处理
-		
-	}
-
+	// TODO 目前暂时以阻塞性来实现全局消息的有序性，后续优化为链表或序列号来实现全局有序
+	d.taskQueue <- oldActiveVal
 }
 
 func (d *DoubleBuffer) swapMonitor() {
