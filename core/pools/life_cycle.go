@@ -63,7 +63,7 @@ type MediumPool struct {
 	stop  chan struct{}         // 停止信号
 }
 
-func (m *MediumPool) Set(ptr uintptr, t time.Time) {
+func (m *MediumPool) Put(ptr uintptr, t time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
