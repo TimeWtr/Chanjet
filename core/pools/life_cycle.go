@@ -20,17 +20,22 @@ import (
 )
 
 const (
-	MediumPoolTTL = 2 * time.Minute
+	mediumPoolTTL     = 2 * time.Minute
+	initializeBufSize = 1024
 )
 
-// LifeCycleManager 缓存池生命周期管理器，用于管理小、中、大三种级别大小
-// 对象的缓冲池，小对象缓冲池直接调用sync.Pool，中对象带过期时间的缓冲
-// 池，后台程序定时清除过期对象，大对象管理器存储每一个对象的引用计数，
-// 管理器不进行后台的隐式删除，而是提供方法给调用方显式删除。
+// LifeCycleManager cache pool life cycle manager, used to manage small, medium and large sizes
+// Object buffer pool, small object buffer pool directly calls sync.Pool, medium object buffer pool
+// with expiration time. The background program regularly clears expired objects, and the large object
+// manager stores the reference count of each object. The manager does not perform implicit deletion
+// in the background, but provides methods for explicit deletion to the caller.
 type LifeCycleManager struct {
-	SmallPool   sync.Pool    // 小对象缓冲池
-	MediumPool  *MediumPool  // 中对象缓冲池
-	BigDataPool *BigDataPool // 大对象缓冲池
+	// Small object pool, storing information with a size less than 1024 bytes.
+	SmallPool sync.Pool
+	// Medium object pool, storing information with a size between 1024 bytes - 32 * 1024 bytes.
+	MediumPool *MediumPool
+	// Large object pool, storing information with a size larger than 32 * 1024 bytes.
+	BigDataPool *BigDataPool
 }
 
 func NewLifeCycleManager() *LifeCycleManager {
@@ -80,7 +85,7 @@ func (m *MediumPool) IsValid(ptr uintptr) bool {
 		return false
 	}
 
-	return time.Since(t) < MediumPoolTTL
+	return time.Since(t) < mediumPoolTTL
 }
 
 // Release 释放资源

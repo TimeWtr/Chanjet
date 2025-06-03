@@ -85,3 +85,9 @@ const (
 	PendingStatus
 	ClosedStatus
 )
+
+const (
+	SmallBatchSize  = 32
+	MediumBatchSize = 125
+	LargeBatchSize  = 256
+)

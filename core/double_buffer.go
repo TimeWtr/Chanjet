@@ -15,6 +15,8 @@
 package core
 
 import (
+	"container/heap"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +25,7 @@ import (
 	"github.com/TimeWtr/Chanjet/_const"
 	"github.com/TimeWtr/Chanjet/core/pools"
 	"github.com/TimeWtr/Chanjet/errorx"
+	"github.com/TimeWtr/Chanjet/metrics"
 )
 
 const (
@@ -31,6 +34,13 @@ const (
 	MediumDataCacheDuration = 5 * time.Second // 中型数据的缓存时间
 	SwitchCheckInterval     = 5 * time.Millisecond
 )
+
+type SwitchCondition struct {
+	sizeThreshold       int64
+	percentThreshold    int
+	timeThreshold       time.Duration
+	timeThresholdMillis int64
+}
 
 type SmartBuffer struct {
 	buf    []unsafe.Pointer        // 存储[]byte对应的指针
@@ -57,6 +67,10 @@ func newSmartBuffer(size int32) *SmartBuffer {
 	return s
 }
 
+func (s *SmartBuffer) len() int {
+	return int(atomic.LoadInt32(&s.count))
+}
+
 func (s *SmartBuffer) write(p []byte) bool {
 	if s.status == _const.ClosedStatus {
 		return false
@@ -79,8 +93,8 @@ func (s *SmartBuffer) write(p []byte) bool {
 	}
 }
 
-// zeroCopyRead 零拷贝读取，非安全API，使用该API必须保证数据在Write后没有进行修改
-// 否则零拷贝的数据将是错误的
+// zeroCopyRead is a non-safe API. When using this API, you must ensure that the data is not modified
+// after Write. Otherwise, the zero-copy data will be wrong.
 func (s *SmartBuffer) zeroCopyRead() ([]byte, bool) {
 	ptr, size := s.pop()
 	if ptr == nil {
@@ -95,12 +109,9 @@ func (s *SmartBuffer) zeroCopyRead() ([]byte, bool) {
 	return *(*[]byte)(ptr), true
 }
 
-// read 读取数据，安全API，默认返回副本
-func (s *SmartBuffer) read() ([]byte, bool) {
+// safeRead 读取数据，安全API，默认返回副本
+func (s *SmartBuffer) safeRead() ([]byte, bool) {
 	ptr, l := s.pop()
-	if s.status == _const.ClosedStatus {
-		return nil, false
-	}
 
 	switch {
 	case l < SmallDataThreshold:
@@ -235,31 +246,77 @@ func (s *SmartBuffer) Close() {
 
 // DoubleBuffer 双缓冲区设计
 type DoubleBuffer struct {
-	active      *SmartBuffer      // 活跃缓冲区
-	passive     *SmartBuffer      // 异步读取缓冲区
-	stop        chan struct{}     // 关闭缓冲区信号
-	size        int32             // 缓冲区的容量
-	count       int32             // 当前活跃缓冲区写入的数据条数
-	status      int32             // 缓冲区状态
-	lastSwitch  int64             // 上次切换的时间，毫秒级别
-	interval    time.Duration     // 后台轮转的时间窗口
-	swapSignal  chan struct{}     // 阻塞进行切换的通知
-	swapPending int32             // 切换阻塞状态
-	directCond  *sync.Cond        // 等待读取的条件
-	directMutex sync.RWMutex      // 直接读取的锁
-	pool        sync.Pool         // 缓冲区对象池
-	readq       [][]byte          // 批量安全读取的缓冲区
-	taskQueue   chan *SmartBuffer // 需要被读取处理的缓冲区队列
-	wg          sync.WaitGroup    // 同步控制
+	// The active buffer is used to receive written data in real time. When the channel switching
+	// condition is met, it will switch to the asynchronous processing buffer.
+	active *SmartBuffer
+	// The asynchronous read buffer is used to process data asynchronously. The buffer is placed
+	// in the blocking minimum heap for sorting and waiting for asynchronous goroutine processing.
+	// When the channel is switched, the active buffer is switched to the asynchronous read buffer.
+	// The asynchronous read buffer is assigned a new buffer and switched to the active buffer to
+	// receive write data in real time.
+	passive *SmartBuffer
+	// Turn off buffer signal
+	stop chan struct{}
+	// Buffer capacity
+	size int32
+	// The number of data entries written to the current active buffer
+	count int32
+	// Buffer status
+	status int32
+	// The time of last switch, in milliseconds
+	lastSwitch int64
+	// The time window for background rotation
+	interval time.Duration
+	// Blocking notifications for switching
+	swapSignal chan struct{}
+	// Switch pending state
+	swapPending int32
+	// Waiting for read Condition
+	directCond *sync.Cond
+	//Direct read lock
+	directMutex sync.RWMutex
+	// buffer object pool
+	pool sync.Pool
+	// Buffer for safe batch reads
+	readq chan [][]byte
+	// Synchronous control
+	wg sync.WaitGroup
+	// A globally monotonically increasing unique sequence number used to perform sequential operations
+	// on passive
+	sequence int64
+	// The passive sequence number currently being processed by the asynchronous program, concurrent
+	// security updates
+	currentSequence int64
+	// The minimum heap is used to sort multiple passives to be processed. When switching channels,
+	// the active channel will be converted to a passive channel.
+	// Put it into the taskQueue for asynchronous processing. Because the taskQueue has a capacity limit,
+	// if the taskQueue is full, this passive needs to block and wait, which will affect subsequent channel
+	// switching and data writing. To solve this problem, use sequence+the minimum heap finds the passive
+	// corresponding to the smallest sequence. The passive that needs to be switched is directly written to
+	// the minimum heap for sorting. Each time it gets the passive that needs to be processed first, there
+	// is no need to block and wait.
+	pendingHeap *MinHeap
+	// Used to notify other goroutines that there are new passives to be processed.
+	heapCond *sync.Cond
+	// Lock used to protect passive writes to the minimum heap when switching channels.
+	heapMutex sync.Mutex
+	// Used to determine whether to enable indicator monitoring,
+	enableMetrics bool
+	// Batch indicator collector for receiving indicator data from double-buffered channels in real time.
+	mc metrics.BatchCollector
+	// The condition to switch channels.
+	sc SwitchCondition
 }
 
 func NewDoubleBuffer(size int32) *DoubleBuffer {
 	d := &DoubleBuffer{
-		active:     newSmartBuffer(size),
-		passive:    newSmartBuffer(size),
-		stop:       make(chan struct{}),
-		size:       size,
-		lastSwitch: time.Now().UnixMilli(),
+		active:      newSmartBuffer(size),
+		passive:     newSmartBuffer(size),
+		readq:       make(chan [][]byte, 3*size),
+		stop:        make(chan struct{}),
+		size:        size,
+		lastSwitch:  time.Now().UnixMilli(),
+		pendingHeap: &MinHeap{},
 	}
 
 	d.pool = sync.Pool{
@@ -271,6 +328,12 @@ func NewDoubleBuffer(size int32) *DoubleBuffer {
 	d.active, _ = d.pool.Get().(*SmartBuffer)
 	d.passive, _ = d.pool.Get().(*SmartBuffer)
 	d.directCond = sync.NewCond(&d.directMutex)
+	// initialize min heap
+	heap.Init(&MinHeap{})
+	d.heapCond = sync.NewCond(&d.heapMutex)
+
+	d.wg.Add(1)
+	go d.processor()
 
 	return d
 }
@@ -289,7 +352,7 @@ func (d *DoubleBuffer) Write(p []byte) error {
 		}
 	}
 
-	// 尝试写入缓冲区
+	// Try to write to buffer
 	if d.active.write(p) {
 		if atomic.LoadInt32(&d.passive.count) == 0 {
 			d.directCond.Broadcast()
@@ -299,11 +362,12 @@ func (d *DoubleBuffer) Write(p []byte) error {
 	return nil
 }
 
-// needSwitch 判断是否需要执行通道切换，切换条件有如下：
-// 1. 综合因子超过阈值
-// 2. 当前活跃缓冲区的大小超过缓冲区的容量
-// 3. 当前时间与上次切换的时间间隔超过了规定的时间窗口
-// 满足任意一条，即需要立即执行通道切换
+// needSwitch determines whether a channel switch needs to be executed. The switching conditions
+// are as follows:
+// 1. The comprehensive factor exceeds the threshold
+// 2. The size of the current active buffer exceeds the buffer capacity
+// 3. The time interval between the current time and the last switch exceeds the specified time window
+// If any of the conditions is met, the channel switch needs to be executed immediately.
 func (d *DoubleBuffer) needSwitch() bool {
 	const (
 		SizeWeight   = 0.6
@@ -313,9 +377,9 @@ func (d *DoubleBuffer) needSwitch() bool {
 
 	currentCount := atomic.LoadInt32(&d.count)
 	lastSwitch := atomic.LoadInt64(&d.lastSwitch)
-	// 计算容量因子(0-1)
+	// Calculate capacity factor (0-1)
 	countFactor := float64(currentCount) / float64(d.size)
-	// 计算时间因子(0-1)
+	// Calculate capacity factor (0-1)
 	switchFactor := float64(time.Since(time.UnixMilli(lastSwitch))) / float64(d.interval)
 	combined := TimeWeight*switchFactor + SizeWeight*countFactor
 
@@ -324,7 +388,7 @@ func (d *DoubleBuffer) needSwitch() bool {
 		time.Since(time.UnixMilli(d.lastSwitch)) > d.interval
 }
 
-// switchChannel 执行通道切换
+// switchChannel Perform channel switching
 func (d *DoubleBuffer) switchChannel() {
 	defer func() {
 		<-d.swapSignal
@@ -344,8 +408,17 @@ func (d *DoubleBuffer) switchChannel() {
 
 	d.directCond.Broadcast()
 	oldActiveVal := (*SmartBuffer)(oldActive)
-	// TODO 目前暂时以阻塞性来实现全局消息的有序性，后续优化为链表或序列号来实现全局有序
-	d.taskQueue <- oldActiveVal
+	seq := atomic.AddInt64(&d.sequence, 1)
+	item := MinHeapItem{
+		sequence: seq,
+		buf:      oldActiveVal,
+	}
+
+	d.heapMutex.Lock()
+	d.pendingHeap.Push(item)
+	d.heapMutex.Unlock()
+
+	d.heapCond.Signal()
 }
 
 func (d *DoubleBuffer) swapMonitor() {
@@ -368,5 +441,176 @@ func (d *DoubleBuffer) swapMonitor() {
 		case <-d.swapSignal:
 			d.switchChannel()
 		}
+	}
+}
+
+// processor Asynchronous processor, used to poll and obtain the buffer corresponding to the minimum
+// sequence that needs to be processed in blocking sorting.
+func (d *DoubleBuffer) processor() {
+	defer d.wg.Done()
+
+	const (
+		smallSize  = 32
+		mediumSize = 125
+	)
+	const mod = 5
+	bufferSize := _const.SmallBatchSize
+
+	for {
+		d.heapMutex.Lock()
+		for {
+			select {
+			case <-d.stop:
+				d.drainProcessor()
+				d.heapMutex.Unlock()
+				return
+			default:
+			}
+
+			if d.pendingHeap.Len() > 0 {
+				top := (*d.pendingHeap)[0]
+				if top.sequence == atomic.LoadInt64(&d.currentSequence) {
+					break
+				}
+			}
+
+			if !d.condWithTimeout(100 * time.Millisecond) {
+				continue
+			}
+		}
+
+		top := heap.Pop(d.pendingHeap).(MinHeapItem)
+		d.heapMutex.Unlock()
+
+		l := d.pendingHeap.Len()
+		if l == 0 {
+			d.heapMutex.Unlock()
+			continue
+		}
+
+		if l%mod == 0 {
+			switch {
+			case l < smallSize:
+				bufferSize = _const.SmallBatchSize
+			case l < mediumSize:
+				bufferSize = _const.MediumBatchSize
+			default:
+				bufferSize = _const.LargeBatchSize
+			}
+		}
+
+		if top.sequence == atomic.LoadInt64(&d.currentSequence) {
+			d.processBuffer(top.buf, bufferSize)
+			atomic.AddInt64(&d.currentSequence, 1)
+		} else {
+			d.heapMutex.Lock()
+			heap.Push(d.pendingHeap, top)
+			d.heapMutex.Unlock()
+		}
+	}
+}
+
+// processBuffer Read the byte slices in the buffer in batches and write them to the readq queue.
+func (d *DoubleBuffer) processBuffer(buf *SmartBuffer, batchSize int) {
+	defer d.wg.Done()
+
+	batch := make([][]byte, batchSize)
+	var size int64
+	var count int64
+	flushFunc := func() {
+		d.readq <- batch
+		d.mc.RecordRead(count, size, nil)
+		batch = batch[:0]
+		size = 0
+		count = 0
+	}
+
+	for {
+		if buf.len() == 0 {
+			break
+		}
+
+		ptr, sz := buf.pop()
+		if ptr == nil {
+			break
+		}
+
+		// safe read data
+		data, _ := buf.safeRead()
+		batch = append(batch, data)
+		size += int64(sz)
+		count++
+
+		if count >= int64(batchSize) {
+			flushFunc()
+			continue
+		}
+	}
+
+	if len(batch) == 0 {
+		return
+	}
+
+	flushFunc()
+}
+
+func (d *DoubleBuffer) drainProcessor() {
+	d.heapMutex.Lock()
+	defer d.heapMutex.Unlock()
+
+	for d.pendingHeap.Len() > 0 {
+		item := heap.Pop(d.pendingHeap).(MinHeapItem)
+		if item.buf != nil {
+			item.buf.Close()
+			d.pool.Put(item.buf)
+		}
+	}
+}
+
+func (d *DoubleBuffer) condWithTimeout(timeout time.Duration) bool {
+	ch := make(chan struct{})
+
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Println("cond.Wait panic:", err)
+			}
+		}()
+		d.heapCond.Wait()
+		close(ch)
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-ch:
+		return true
+	case <-timer.C:
+		d.heapCond.Broadcast()
+		return false
+	case <-d.stop:
+		d.heapCond.Broadcast()
+		return false
+	}
+}
+
+func (d *DoubleBuffer) Close() {
+	if !atomic.CompareAndSwapInt32(&d.status, _const.WritingStatus, _const.ClosedStatus) {
+		return
+	}
+
+	close(d.stop)
+	d.active.Close()
+	d.pool.Put(d.active)
+
+	d.passive.Close()
+	d.pool.Put(d.passive)
+	d.wg.Wait()
+
+	d.drainProcessor()
+
+	if d.readq != nil {
+		close(d.readq)
 	}
 }
