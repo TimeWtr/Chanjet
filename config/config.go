@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package core
+package config
 
 import (
 	"sync"
@@ -33,12 +33,13 @@ type SwitchCondition struct {
 	config  SwitchConfig
 	notify  chan struct{}
 	version int64
-	mu      sync.RWMutex
+	mu      *sync.RWMutex
 }
 
 func NewSwitchCondition(config SwitchConfig) (*SwitchCondition, error) {
 	sw := &SwitchCondition{
 		notify: make(chan struct{}, 1),
+		mu:     new(sync.RWMutex),
 	}
 
 	if err := sw.validate(config); err != nil {

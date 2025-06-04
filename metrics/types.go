@@ -15,7 +15,7 @@
 package metrics
 
 import (
-	"github.com/TimeWtr/Chanjet/_const"
+	"github.com/TimeWtr/Chanjet"
 )
 
 // Collector 指标监控接口
@@ -49,7 +49,7 @@ type PoolMetrics interface {
 // AsyncGoroutineMetrics 异步读通道数据的goroutine数量
 type AsyncGoroutineMetrics interface {
 	// ObserveAsyncGoroutine 异步goroutine数量的监控，增加/减少都对应各自的数量
-	ObserveAsyncGoroutine(operation _const.OperationType, delta float64)
+	ObserveAsyncGoroutine(operation Chanjet.OperationType, delta float64)
 }
 
 // ChannelMetrics 通道相关的指标数据
@@ -60,7 +60,7 @@ type ChannelMetrics interface {
 
 // ChannelSwitchMetrics 通道切换的指标数据
 type ChannelSwitchMetrics interface {
-	SwitchWithLatency(status _const.SwitchStatus, counts float64, millSeconds float64)
+	SwitchWithLatency(status Chanjet.SwitchStatus, counts float64, millSeconds float64)
 }
 
 // ActiveChannelMetrics 活跃缓冲区的通道指标
