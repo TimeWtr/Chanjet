@@ -124,7 +124,6 @@ func TestDoubleBuffer_BasicWriteRead(t *testing.T) {
 	db := NewDoubleBuffer(10)
 	defer db.Close()
 
-	// 为了测试，我们需要初始化一些必要的字段
 	db.swapSignal = make(chan struct{}, 1)
 	db.readq = make(chan [][]byte, 100)
 
@@ -134,7 +133,7 @@ func TestDoubleBuffer_BasicWriteRead(t *testing.T) {
 
 	// Manually trigger switch
 	db.swapSignal <- struct{}{}
-	drainChannel(db.swapSignal) // 确保通道清空
+	drainChannel(db.swapSignal)
 	db.switchChannel()
 
 	// Should be processed asynchronously
