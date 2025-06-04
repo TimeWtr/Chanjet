@@ -12,20 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Copyright 2025 TimeWtr
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 package core
 
 import (
@@ -36,10 +22,11 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/TimeWtr/Chanjet/_const"
-	"github.com/TimeWtr/Chanjet/core/pools"
+	"github.com/TimeWtr/Chanjet"
+	"github.com/TimeWtr/Chanjet/config"
 	"github.com/TimeWtr/Chanjet/errorx"
 	"github.com/TimeWtr/Chanjet/metrics"
+	"github.com/TimeWtr/Chanjet/pools"
 )
 
 const (
@@ -66,7 +53,7 @@ func newSmartBuffer(size int32) *SmartBuffer {
 		tail:   -1,
 		count:  0,
 		size:   size,
-		status: _const.WritingStatus,
+		status: Chanjet.WritingStatus,
 		pm:     pools.NewLifeCycleManager(),
 	}
 
@@ -79,7 +66,7 @@ func (s *SmartBuffer) len() int {
 }
 
 func (s *SmartBuffer) write(p []byte) bool {
-	if s.status == _const.ClosedStatus {
+	if s.status == Chanjet.ClosedStatus {
 		return false
 	}
 
@@ -157,7 +144,7 @@ func (s *SmartBuffer) Release(data []byte) {
 
 // push 实际执行数据的写入
 func (s *SmartBuffer) push(ptr unsafe.Pointer, size int32) bool {
-	if s.status == _const.ClosedStatus {
+	if s.status == Chanjet.ClosedStatus {
 		return false
 	}
 
@@ -204,7 +191,7 @@ func (s *SmartBuffer) recycleWorker() {
 	defer ticker.Stop()
 
 	for {
-		if atomic.LoadInt32(&s.status) == _const.ClosedStatus {
+		if atomic.LoadInt32(&s.status) == Chanjet.ClosedStatus {
 			return
 		}
 
@@ -240,7 +227,7 @@ func (s *SmartBuffer) getSizeFromPtr(ptr unsafe.Pointer) int32 {
 }
 
 func (s *SmartBuffer) Close() {
-	atomic.StoreInt32(&s.status, _const.ClosedStatus)
+	atomic.StoreInt32(&s.status, Chanjet.ClosedStatus)
 	for s.count > 0 {
 		ptr, _ := s.pop()
 		if ptr == nil {
@@ -251,7 +238,7 @@ func (s *SmartBuffer) Close() {
 	}
 }
 
-// DoubleBuffer 双缓冲区设计
+// DoubleBuffer Double buffer design
 type DoubleBuffer struct {
 	// The active buffer is used to receive written data in real time. When the channel switching
 	// condition is met, it will switch to the asynchronous processing buffer.
@@ -312,16 +299,17 @@ type DoubleBuffer struct {
 	// Batch indicator collector for receiving indicator data from double-buffered channels in real time.
 	mc metrics.BatchCollector
 	// The condition to switch channels.
-	sc SwitchCondition
+	sc *config.SwitchCondition
 }
 
-func NewDoubleBuffer(size int32) *DoubleBuffer {
+func NewDoubleBuffer(size int32, sc *config.SwitchCondition) *DoubleBuffer {
 	d := &DoubleBuffer{
 		active:      newSmartBuffer(size),
 		passive:     newSmartBuffer(size),
 		readq:       make(chan [][]byte, 3*size),
 		stop:        make(chan struct{}),
 		size:        size,
+		sc:          sc,
 		lastSwitch:  time.Now().UnixMilli(),
 		pendingHeap: &MinHeap{},
 	}
@@ -346,7 +334,7 @@ func NewDoubleBuffer(size int32) *DoubleBuffer {
 }
 
 func (d *DoubleBuffer) Write(p []byte) error {
-	if atomic.LoadInt32(&d.status) == _const.ClosedStatus {
+	if atomic.LoadInt32(&d.status) == Chanjet.ClosedStatus {
 		return errorx.ErrBufferClose
 	}
 
@@ -376,23 +364,23 @@ func (d *DoubleBuffer) Write(p []byte) error {
 // 3. The time interval between the current time and the last switch exceeds the specified time window
 // If any of the conditions is met, the channel switch needs to be executed immediately.
 func (d *DoubleBuffer) needSwitch() bool {
-	const (
-		SizeWeight   = 0.6
-		TimeWeight   = 0.4
-		FullCapacity = 1.0
-	)
-
 	currentCount := atomic.LoadInt32(&d.count)
-	lastSwitch := atomic.LoadInt64(&d.lastSwitch)
+	if currentCount >= d.size {
+		return true
+	}
+
+	lastSwitch := time.UnixMilli(atomic.LoadInt64(&d.lastSwitch))
+	elapsed := time.Since(lastSwitch)
+	if elapsed >= d.interval {
+		return true
+	}
 	// Calculate capacity factor (0-1)
 	countFactor := float64(currentCount) / float64(d.size)
-	// Calculate capacity factor (0-1)
-	switchFactor := float64(time.Since(time.UnixMilli(lastSwitch))) / float64(d.interval)
-	combined := TimeWeight*switchFactor + SizeWeight*countFactor
+	// Calculate switch time factor (0-1)
+	switchFactor := float64(elapsed) / float64(d.interval)
+	combined := Chanjet.TimeWeight*switchFactor + Chanjet.SizeWeight*countFactor
 
-	return combined > FullCapacity ||
-		d.count >= d.size ||
-		time.Since(time.UnixMilli(d.lastSwitch)) > d.interval
+	return combined > Chanjet.FullCapacity
 }
 
 // switchChannel Perform channel switching
@@ -461,7 +449,7 @@ func (d *DoubleBuffer) processor() {
 		mediumSize = 125
 	)
 	const mod = 5
-	bufferSize := _const.SmallBatchSize
+	bufferSize := Chanjet.SmallBatchSize
 
 	for {
 		d.heapMutex.Lock()
@@ -498,11 +486,11 @@ func (d *DoubleBuffer) processor() {
 		if l%mod == 0 {
 			switch {
 			case l < smallSize:
-				bufferSize = _const.SmallBatchSize
+				bufferSize = Chanjet.SmallBatchSize
 			case l < mediumSize:
-				bufferSize = _const.MediumBatchSize
+				bufferSize = Chanjet.MediumBatchSize
 			default:
-				bufferSize = _const.LargeBatchSize
+				bufferSize = Chanjet.LargeBatchSize
 			}
 		}
 
@@ -603,7 +591,7 @@ func (d *DoubleBuffer) condWithTimeout(timeout time.Duration) bool {
 }
 
 func (d *DoubleBuffer) Close() {
-	if !atomic.CompareAndSwapInt32(&d.status, _const.WritingStatus, _const.ClosedStatus) {
+	if !atomic.CompareAndSwapInt32(&d.status, Chanjet.WritingStatus, Chanjet.ClosedStatus) {
 		return
 	}
 

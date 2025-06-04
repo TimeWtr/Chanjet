@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/TimeWtr/Chanjet/_const"
+	"github.com/TimeWtr/Chanjet"
 )
 
 // BatchCollector 批量上报指标数据的采集器，抽象出来给到调用方的接口
@@ -29,11 +29,11 @@ type BatchCollector interface {
 
 // Recorder 提供给调用方的接口
 type Recorder interface {
-	RecordWrite(size int64, err error)                             // 上报写数据
-	RecordRead(count, size int64, err error)                       // 上报读数据
-	RecordSwitch(status _const.SwitchStatus, latencySeconds int64) // 上报通道切换数据
-	ObserveAsyncWorker(op _const.OperationType)                    // 上报异步goroutine数据
-	RecordPoolAlloc()                                              // 上报池对象创建数据
+	RecordWrite(size int64, err error)                              // 上报写数据
+	RecordRead(count, size int64, err error)                        // 上报读数据
+	RecordSwitch(status Chanjet.SwitchStatus, latencySeconds int64) // 上报通道切换数据
+	ObserveAsyncWorker(op Chanjet.OperationType)                    // 上报异步goroutine数据
+	RecordPoolAlloc()                                               // 上报池对象创建数据
 }
 
 // Controller 批量更新控制器
@@ -142,19 +142,19 @@ func (b *BatchCollectImpl) RecordRead(count, size int64, err error) {
 	atomic.AddInt64(&b.r.readSizes, size)
 }
 
-func (b *BatchCollectImpl) RecordSwitch(status _const.SwitchStatus, latencySeconds int64) {
+func (b *BatchCollectImpl) RecordSwitch(status Chanjet.SwitchStatus, latencySeconds int64) {
 	switch status {
-	case _const.SwitchSkip:
+	case Chanjet.SwitchSkip:
 		atomic.AddInt64(&b.sp.skipSwitchCounts, 1)
-	case _const.SwitchSuccess:
+	case Chanjet.SwitchSuccess:
 		atomic.AddInt64(&b.sp.switchCounts, 1)
 		atomic.StoreInt64(&b.sp.switchLatency, latencySeconds)
-	case _const.SwitchFailure:
+	case Chanjet.SwitchFailure:
 	}
 }
 
-func (b *BatchCollectImpl) ObserveAsyncWorker(op _const.OperationType) {
-	if op == _const.MetricsIncOp {
+func (b *BatchCollectImpl) ObserveAsyncWorker(op Chanjet.OperationType) {
+	if op == Chanjet.MetricsIncOp {
 		atomic.AddInt64(&b.sp.asyncWorkerIncCounts, 1)
 		return
 	}
@@ -203,13 +203,13 @@ func (b *BatchCollectImpl) report() {
 		float64(atomic.LoadInt64(&b.r.readErrors)))
 	b.r.Reset()
 
-	b.mc.ObserveAsyncGoroutine(_const.MetricsIncOp, float64(atomic.LoadInt64(&b.sp.asyncWorkerIncCounts)))
-	b.mc.ObserveAsyncGoroutine(_const.MetricsDecOp, float64(atomic.LoadInt64(&b.sp.asyncWorkerDecCounts)))
+	b.mc.ObserveAsyncGoroutine(Chanjet.MetricsIncOp, float64(atomic.LoadInt64(&b.sp.asyncWorkerIncCounts)))
+	b.mc.ObserveAsyncGoroutine(Chanjet.MetricsDecOp, float64(atomic.LoadInt64(&b.sp.asyncWorkerDecCounts)))
 	b.mc.AllocInc(float64(atomic.LoadInt64(&b.sp.poolAlloc)))
-	b.mc.SwitchWithLatency(_const.SwitchSuccess,
+	b.mc.SwitchWithLatency(Chanjet.SwitchSuccess,
 		float64(atomic.LoadInt64(&b.sp.switchCounts)),
 		float64(atomic.LoadInt64(&b.sp.switchLatency)))
-	b.mc.SwitchWithLatency(_const.SwitchSkip,
+	b.mc.SwitchWithLatency(Chanjet.SwitchSkip,
 		float64(atomic.LoadInt64(&b.sp.skipSwitchCounts)), 0)
 	b.sp.Reset()
 }

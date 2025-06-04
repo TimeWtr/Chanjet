@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package _const
+package Chanjet
 
 import "time"
 
@@ -90,4 +90,10 @@ const (
 	SmallBatchSize  = 32
 	MediumBatchSize = 125
 	LargeBatchSize  = 256
+)
+
+const (
+	SizeWeight   = 0.6
+	TimeWeight   = 0.4
+	FullCapacity = 0.85
 )

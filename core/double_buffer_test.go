@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TimeWtr/Chanjet/config"
 	"github.com/TimeWtr/Chanjet/errorx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -121,14 +122,21 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 }
 
 func TestDoubleBuffer_BasicWriteRead(t *testing.T) {
-	db := NewDoubleBuffer(10)
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		SizeThreshold:    100,
+		PercentThreshold: 80,
+		TimeThreshold:    time.Second,
+	})
+	require.NoError(t, err)
+
+	db := NewDoubleBuffer(10, sc)
 	defer db.Close()
 
 	db.swapSignal = make(chan struct{}, 1)
 	db.readq = make(chan [][]byte, 100)
 
 	data := []byte("test data")
-	err := db.Write(data)
+	err = db.Write(data)
 	require.NoError(t, err)
 
 	// Manually trigger switch
@@ -136,7 +144,6 @@ func TestDoubleBuffer_BasicWriteRead(t *testing.T) {
 	drainChannel(db.swapSignal)
 	db.switchChannel()
 
-	// Should be processed asynchronously
 	select {
 	case batch := <-db.readq:
 		require.Len(t, batch, 1)
@@ -148,7 +155,14 @@ func TestDoubleBuffer_BasicWriteRead(t *testing.T) {
 
 func TestDoubleBuffer_SwitchConditions(t *testing.T) {
 	t.Run("Switch by size", func(t *testing.T) {
-		db := NewDoubleBuffer(5)
+		sc, err := config.NewSwitchCondition(config.SwitchConfig{
+			SizeThreshold:    100,
+			PercentThreshold: 80,
+			TimeThreshold:    time.Second,
+		})
+		require.NoError(t, err)
+
+		db := NewDoubleBuffer(5, sc)
 		defer db.Close()
 		db.swapSignal = make(chan struct{}, 1)
 		db.interval = time.Hour // Disable time-based switching
@@ -170,7 +184,14 @@ func TestDoubleBuffer_SwitchConditions(t *testing.T) {
 	})
 
 	t.Run("Switch by time", func(t *testing.T) {
-		db := NewDoubleBuffer(100)
+		sc, err := config.NewSwitchCondition(config.SwitchConfig{
+			SizeThreshold:    100,
+			PercentThreshold: 80,
+			TimeThreshold:    time.Second,
+		})
+		require.NoError(t, err)
+
+		db := NewDoubleBuffer(100, sc)
 		defer db.Close()
 		db.swapSignal = make(chan struct{}, 1)
 		db.interval = 10 * time.Millisecond // Very short interval
@@ -186,7 +207,14 @@ func TestDoubleBuffer_SwitchConditions(t *testing.T) {
 	})
 
 	t.Run("Switch by combined factors", func(t *testing.T) {
-		db := NewDoubleBuffer(10)
+		sc, err := config.NewSwitchCondition(config.SwitchConfig{
+			SizeThreshold:    100,
+			PercentThreshold: 80,
+			TimeThreshold:    time.Second,
+		})
+		require.NoError(t, err)
+
+		db := NewDoubleBuffer(10, sc)
 		defer db.Close()
 		db.swapSignal = make(chan struct{}, 1)
 		db.interval = 20 * time.Millisecond
@@ -206,7 +234,14 @@ func TestDoubleBuffer_SwitchConditions(t *testing.T) {
 }
 
 func TestDoubleBuffer_ConcurrentWrites(t *testing.T) {
-	db := NewDoubleBuffer(1000)
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		SizeThreshold:    100,
+		PercentThreshold: 80,
+		TimeThreshold:    time.Second,
+	})
+	require.NoError(t, err)
+
+	db := NewDoubleBuffer(1000, sc)
 	defer db.Close()
 	db.swapSignal = make(chan struct{}, 10)
 	db.readq = make(chan [][]byte, 1000)
@@ -264,7 +299,14 @@ func TestDoubleBuffer_ConcurrentWrites(t *testing.T) {
 }
 
 func TestDoubleBuffer_Ordering(t *testing.T) {
-	db := NewDoubleBuffer(5) // Small buffer to force frequent switches
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		SizeThreshold:    100,
+		PercentThreshold: 80,
+		TimeThreshold:    time.Second,
+	})
+	require.NoError(t, err)
+
+	db := NewDoubleBuffer(5, sc)
 	defer db.Close()
 	db.swapSignal = make(chan struct{}, 10)
 	db.readq = make(chan [][]byte, 100)
@@ -309,7 +351,14 @@ func TestDoubleBuffer_Ordering(t *testing.T) {
 
 func TestDoubleBuffer_Close(t *testing.T) {
 	t.Run("Close with pending data", func(t *testing.T) {
-		db := NewDoubleBuffer(10)
+		sc, err := config.NewSwitchCondition(config.SwitchConfig{
+			SizeThreshold:    100,
+			PercentThreshold: 80,
+			TimeThreshold:    time.Second,
+		})
+		require.NoError(t, err)
+
+		db := NewDoubleBuffer(10, sc)
 		db.readq = make(chan [][]byte, 10)
 
 		// Write some data
@@ -335,15 +384,28 @@ func TestDoubleBuffer_Close(t *testing.T) {
 	})
 
 	t.Run("Write after close", func(t *testing.T) {
-		db := NewDoubleBuffer(10)
+		sc, err := config.NewSwitchCondition(config.SwitchConfig{
+			SizeThreshold:    100,
+			PercentThreshold: 80,
+			TimeThreshold:    time.Second,
+		})
+		require.NoError(t, err)
+		db := NewDoubleBuffer(10, sc)
 		db.Close()
 
-		err := db.Write([]byte("test"))
+		err = db.Write([]byte("test"))
 		assert.Equal(t, errorx.ErrBufferClose, err)
 	})
 
 	t.Run("Double close", func(t *testing.T) {
-		db := NewDoubleBuffer(10)
+		sc, err := config.NewSwitchCondition(config.SwitchConfig{
+			SizeThreshold:    100,
+			PercentThreshold: 80,
+			TimeThreshold:    time.Second,
+		})
+		require.NoError(t, err)
+
+		db := NewDoubleBuffer(10, sc)
 		db.Close()
 		assert.NotPanics(t, func() { db.Close() })
 	})
@@ -374,7 +436,14 @@ func TestMinHeap(t *testing.T) {
 }
 
 func TestDoubleBuffer_HeapProcessing(t *testing.T) {
-	db := NewDoubleBuffer(3) // Small buffer to force multiple switches
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		SizeThreshold:    100,
+		PercentThreshold: 80,
+		TimeThreshold:    time.Second,
+	})
+	require.NoError(t, err)
+
+	db := NewDoubleBuffer(3, sc)
 	defer db.Close()
 	db.swapSignal = make(chan struct{}, 10)
 	db.readq = make(chan [][]byte, 100)
@@ -415,9 +484,15 @@ func TestDoubleBuffer_HeapProcessing(t *testing.T) {
 }
 
 func TestDoubleBuffer_MemoryReclamation(t *testing.T) {
-	// Helper to count allocations
 	runTest := func() int {
-		db := NewDoubleBuffer(10)
+		sc, err := config.NewSwitchCondition(config.SwitchConfig{
+			SizeThreshold:    100,
+			PercentThreshold: 80,
+			TimeThreshold:    time.Second,
+		})
+		require.NoError(t, err)
+
+		db := NewDoubleBuffer(10, sc)
 		db.readq = make(chan [][]byte, 100)
 
 		for i := 0; i < 100; i++ {
@@ -455,7 +530,14 @@ func TestDoubleBuffer_MemoryReclamation(t *testing.T) {
 }
 
 func TestDoubleBuffer_LargeDataHandling(t *testing.T) {
-	db := NewDoubleBuffer(10)
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		SizeThreshold:    100,
+		PercentThreshold: 80,
+		TimeThreshold:    time.Second,
+	})
+	require.NoError(t, err)
+
+	db := NewDoubleBuffer(10, sc)
 	defer db.Close()
 	db.swapSignal = make(chan struct{}, 1)
 	db.readq = make(chan [][]byte, 10)
@@ -464,7 +546,7 @@ func TestDoubleBuffer_LargeDataHandling(t *testing.T) {
 	largeData := make([]byte, 64*1024)
 	rand.Read(largeData)
 
-	err := db.Write(largeData)
+	err = db.Write(largeData)
 	require.NoError(t, err)
 
 	// Trigger switch
@@ -503,7 +585,14 @@ func TestDoubleBuffer_ZeroCopyRelease(t *testing.T) {
 }
 
 func TestDoubleBuffer_ProcessorTimeout(t *testing.T) {
-	db := NewDoubleBuffer(10)
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		SizeThreshold:    100,
+		PercentThreshold: 80,
+		TimeThreshold:    time.Second,
+	})
+	require.NoError(t, err)
+
+	db := NewDoubleBuffer(10, sc)
 	defer db.Close()
 	db.swapSignal = make(chan struct{}, 1)
 	db.readq = make(chan [][]byte, 10)
@@ -530,7 +619,14 @@ func TestDoubleBuffer_ProcessorTimeout(t *testing.T) {
 }
 
 func TestDoubleBuffer_DrainProcessor(t *testing.T) {
-	db := NewDoubleBuffer(10)
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		SizeThreshold:    100,
+		PercentThreshold: 80,
+		TimeThreshold:    time.Second,
+	})
+	require.NoError(t, err)
+
+	db := NewDoubleBuffer(10, sc)
 	db.swapSignal = make(chan struct{}, 1)
 	db.readq = make(chan [][]byte, 10)
 

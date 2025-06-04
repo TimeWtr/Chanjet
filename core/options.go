@@ -17,14 +17,15 @@ package core
 import (
 	"errors"
 
-	"github.com/TimeWtr/Chanjet/_const"
+	"github.com/TimeWtr/Chanjet"
+	"github.com/TimeWtr/Chanjet/config"
 	"github.com/TimeWtr/Chanjet/metrics"
 )
 
 type Options func(buffer *DoubleBuffer) error
 
 // WithMetrics 开启指标采集，指定采集器类型
-func WithMetrics(collector _const.CollectorType) Options {
+func WithMetrics(collector Chanjet.CollectorType) Options {
 	return func(buffer *DoubleBuffer) error {
 		if !collector.Validate() {
 			return errors.New("invalid metrics collector")
@@ -32,9 +33,9 @@ func WithMetrics(collector _const.CollectorType) Options {
 
 		buffer.enableMetrics = true
 		switch collector {
-		case _const.PrometheusCollector:
+		case Chanjet.PrometheusCollector:
 			buffer.mc = metrics.NewBatchCollector(metrics.NewPrometheus())
-		case _const.OpenTelemetryCollector:
+		case Chanjet.OpenTelemetryCollector:
 		}
 
 		return nil
@@ -42,7 +43,7 @@ func WithMetrics(collector _const.CollectorType) Options {
 }
 
 // WithSwitchCondition Set the channel switching conditions
-func WithSwitchCondition(config SwitchConfig) Options {
+func WithSwitchCondition(config config.SwitchConfig) Options {
 	return func(buffer *DoubleBuffer) error {
 		return buffer.sc.UpdateConfig(config)
 	}
