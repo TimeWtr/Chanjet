@@ -129,7 +129,8 @@ func TestDoubleBuffer_BasicWriteRead(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db := NewDoubleBuffer(10, sc)
+	db, err := NewDoubleBuffer(10, sc)
+	require.NoError(t, err)
 	defer db.Close()
 
 	db.swapSignal = make(chan struct{}, 1)
@@ -162,7 +163,8 @@ func TestDoubleBuffer_SwitchConditions(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		db := NewDoubleBuffer(5, sc)
+		db, err := NewDoubleBuffer(5, sc)
+		require.NoError(t, err)
 		defer db.Close()
 		db.swapSignal = make(chan struct{}, 1)
 		db.interval = time.Hour // Disable time-based switching
@@ -191,7 +193,8 @@ func TestDoubleBuffer_SwitchConditions(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		db := NewDoubleBuffer(100, sc)
+		db, err := NewDoubleBuffer(100, sc)
+		require.NoError(t, err)
 		defer db.Close()
 		db.swapSignal = make(chan struct{}, 1)
 		db.interval = 10 * time.Millisecond // Very short interval
@@ -214,7 +217,8 @@ func TestDoubleBuffer_SwitchConditions(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		db := NewDoubleBuffer(10, sc)
+		db, err := NewDoubleBuffer(10, sc)
+		require.NoError(t, err)
 		defer db.Close()
 		db.swapSignal = make(chan struct{}, 1)
 		db.interval = 20 * time.Millisecond
@@ -241,7 +245,8 @@ func TestDoubleBuffer_ConcurrentWrites(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db := NewDoubleBuffer(1000, sc)
+	db, err := NewDoubleBuffer(1000, sc)
+	assert.NoError(t, err)
 	defer db.Close()
 	db.swapSignal = make(chan struct{}, 10)
 	db.readq = make(chan [][]byte, 1000)
@@ -306,7 +311,8 @@ func TestDoubleBuffer_Ordering(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db := NewDoubleBuffer(5, sc)
+	db, err := NewDoubleBuffer(5, sc)
+	require.NoError(t, err)
 	defer db.Close()
 	db.swapSignal = make(chan struct{}, 10)
 	db.readq = make(chan [][]byte, 100)
@@ -358,7 +364,8 @@ func TestDoubleBuffer_Close(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		db := NewDoubleBuffer(10, sc)
+		db, err := NewDoubleBuffer(10, sc)
+		require.NoError(t, err)
 		db.readq = make(chan [][]byte, 10)
 
 		// Write some data
@@ -390,7 +397,8 @@ func TestDoubleBuffer_Close(t *testing.T) {
 			TimeThreshold:    time.Second,
 		})
 		require.NoError(t, err)
-		db := NewDoubleBuffer(10, sc)
+		db, err := NewDoubleBuffer(10, sc)
+		require.NoError(t, err)
 		db.Close()
 
 		err = db.Write([]byte("test"))
@@ -405,7 +413,8 @@ func TestDoubleBuffer_Close(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		db := NewDoubleBuffer(10, sc)
+		db, err := NewDoubleBuffer(10, sc)
+		require.NoError(t, err)
 		db.Close()
 		assert.NotPanics(t, func() { db.Close() })
 	})
@@ -443,7 +452,8 @@ func TestDoubleBuffer_HeapProcessing(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db := NewDoubleBuffer(3, sc)
+	db, err := NewDoubleBuffer(3, sc)
+	require.NoError(t, err)
 	defer db.Close()
 	db.swapSignal = make(chan struct{}, 10)
 	db.readq = make(chan [][]byte, 100)
@@ -492,7 +502,8 @@ func TestDoubleBuffer_MemoryReclamation(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		db := NewDoubleBuffer(10, sc)
+		db, err := NewDoubleBuffer(10, sc)
+		require.NoError(t, err)
 		db.readq = make(chan [][]byte, 100)
 
 		for i := 0; i < 100; i++ {
@@ -537,7 +548,8 @@ func TestDoubleBuffer_LargeDataHandling(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db := NewDoubleBuffer(10, sc)
+	db, err := NewDoubleBuffer(10, sc)
+	require.NoError(t, err)
 	defer db.Close()
 	db.swapSignal = make(chan struct{}, 1)
 	db.readq = make(chan [][]byte, 10)
@@ -592,7 +604,8 @@ func TestDoubleBuffer_ProcessorTimeout(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db := NewDoubleBuffer(10, sc)
+	db, err := NewDoubleBuffer(10, sc)
+	require.NoError(t, err)
 	defer db.Close()
 	db.swapSignal = make(chan struct{}, 1)
 	db.readq = make(chan [][]byte, 10)
@@ -626,7 +639,8 @@ func TestDoubleBuffer_DrainProcessor(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db := NewDoubleBuffer(10, sc)
+	db, err := NewDoubleBuffer(10, sc)
+	require.NoError(t, err)
 	db.swapSignal = make(chan struct{}, 1)
 	db.readq = make(chan [][]byte, 10)
 
