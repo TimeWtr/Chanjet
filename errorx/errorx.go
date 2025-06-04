@@ -14,7 +14,9 @@
 
 package errorx
 
-import "errors"
+import (
+	"errors"
+)
 
 var (
 	ErrBufferClose = errors.New("buffer is closed")
@@ -27,4 +29,10 @@ var (
 	ErrPoolEmpty               = errors.New("pool returned empty object")
 	ErrPoolMaxSize             = errors.New("pool object over max size")
 	ErrReadChannelWriteTimeout = errors.New("readq channel write timeout")
+)
+
+var (
+	ErrSizeThreshold    = errors.New("size threshold cannot be negative and zero")
+	ErrPercentThreshold = errors.New("percent threshold must be between 0 and 100")
+	ErrTimeThreshold    = errors.New("time threshold cannot be negative")
 )

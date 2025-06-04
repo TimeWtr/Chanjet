@@ -15,9 +15,10 @@
 package core
 
 import (
-	"fmt"
-	"sync/atomic"
+	"sync"
 	"time"
+
+	"github.com/TimeWtr/Chanjet/errorx"
 )
 
 type SwitchConfig struct {
@@ -29,9 +30,10 @@ type SwitchConfig struct {
 }
 
 type SwitchCondition struct {
-	config  atomic.Value
+	config  SwitchConfig
 	notify  chan struct{}
 	version int64
+	mu      sync.RWMutex
 }
 
 func NewSwitchCondition(config SwitchConfig) (*SwitchCondition, error) {
@@ -43,25 +45,26 @@ func NewSwitchCondition(config SwitchConfig) (*SwitchCondition, error) {
 		return nil, err
 	}
 
+	sw.version = 1
 	config.timeThresholdMillis = config.TimeThreshold.Milliseconds()
-	config.version = atomic.AddInt64(&sw.version, 1)
-	sw.config.Store(config)
+	config.version = 1
+	sw.config = config
 	sw.notify <- struct{}{}
 
 	return sw, nil
 }
 
 func (s *SwitchCondition) validate(sc SwitchConfig) error {
-	if sc.SizeThreshold < 0 {
-		return fmt.Errorf("size threshold cannot be negative")
+	if sc.SizeThreshold <= 0 {
+		return errorx.ErrSizeThreshold
 	}
 
 	if sc.PercentThreshold < 0 || sc.PercentThreshold > 100 {
-		return fmt.Errorf("percent threshold must be between 0 and 100")
+		return errorx.ErrPercentThreshold
 	}
 
 	if sc.TimeThreshold < 0 {
-		return fmt.Errorf("time threshold cannot be negative")
+		return errorx.ErrTimeThreshold
 	}
 
 	return nil
@@ -76,12 +79,12 @@ func (s *SwitchCondition) UpdateConfig(sc SwitchConfig) error {
 		return err
 	}
 
-	version := atomic.LoadInt64(&s.version)
-	atomic.CompareAndSwapInt64(&s.version, version, version+1)
-	atomic.CompareAndSwapInt64(&sc.version, version, version+1)
-	sc.version = version + 1
-	sc.timeThresholdMillis = sc.TimeThreshold.Milliseconds()
-	s.config.Store(sc)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.version += 1
+	s.config = sc
+	s.config.version = s.version
+	s.config.timeThresholdMillis = sc.TimeThreshold.Milliseconds()
 
 	select {
 	case s.notify <- struct{}{}:
@@ -92,5 +95,8 @@ func (s *SwitchCondition) UpdateConfig(sc SwitchConfig) error {
 }
 
 func (s *SwitchCondition) GetConfig() SwitchConfig {
-	return s.config.Load().(SwitchConfig)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.config
 }
