@@ -16,7 +16,6 @@ package core
 
 import (
 	"errors"
-	"time"
 
 	"github.com/TimeWtr/Chanjet/_const"
 	"github.com/TimeWtr/Chanjet/metrics"
@@ -30,6 +29,7 @@ func WithMetrics(collector _const.CollectorType) Options {
 		if !collector.Validate() {
 			return errors.New("invalid metrics collector")
 		}
+
 		buffer.enableMetrics = true
 		switch collector {
 		case _const.PrometheusCollector:
@@ -41,30 +41,9 @@ func WithMetrics(collector _const.CollectorType) Options {
 	}
 }
 
-// WithSizeThreshold 设置通道大小限制阈值，当设置为1024 * 1024 * 10 时，
-// 当写入的Size达到了这个阈值就会触发通道切换
-func WithSizeThreshold(size int64) Options {
+// WithSwitchCondition Set the channel switching conditions
+func WithSwitchCondition(config SwitchConfig) Options {
 	return func(buffer *DoubleBuffer) error {
-		buffer.sc.sizeThreshold = size
-		return nil
-	}
-}
-
-// WithPercentThreshold 设置通道数量限制阈值，当设置为80%时，通道中的数据条数
-// 达到总容量的80%时就会触发通道切换，范围（0-100）
-func WithPercentThreshold(percentThreshold int) Options {
-	return func(buffer *DoubleBuffer) error {
-		buffer.sc.percentThreshold = percentThreshold
-		return nil
-	}
-}
-
-// WithTimeThreshold 设置定时切换通道的时间间隔，当设置为1s时，后台监控goroutine
-// 会每隔1s执行一次通道切换，确保数据不会长期积压。
-func WithTimeThreshold(timeThreshold time.Duration) Options {
-	return func(buffer *DoubleBuffer) error {
-		buffer.sc.timeThreshold = timeThreshold
-		buffer.sc.timeThresholdMillis = timeThreshold.Milliseconds()
-		return nil
+		return buffer.sc.UpdateConfig(config)
 	}
 }
