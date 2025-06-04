@@ -300,9 +300,11 @@ type DoubleBuffer struct {
 	mc metrics.BatchCollector
 	// The condition to switch channels.
 	sc *config.SwitchCondition
+	// The strategy switching channels.
+	sw Chanjet.SwitchStrategy
 }
 
-func NewDoubleBuffer(size int32, sc *config.SwitchCondition) *DoubleBuffer {
+func NewDoubleBuffer(size int32, sc *config.SwitchCondition, opts ...Options) (*DoubleBuffer, error) {
 	d := &DoubleBuffer{
 		active:      newSmartBuffer(size),
 		passive:     newSmartBuffer(size),
@@ -312,6 +314,12 @@ func NewDoubleBuffer(size int32, sc *config.SwitchCondition) *DoubleBuffer {
 		sc:          sc,
 		lastSwitch:  time.Now().UnixMilli(),
 		pendingHeap: &MinHeap{},
+	}
+
+	for _, opt := range opts {
+		if err := opt(d); err != nil {
+			return nil, err
+		}
 	}
 
 	d.pool = sync.Pool{
@@ -330,7 +338,7 @@ func NewDoubleBuffer(size int32, sc *config.SwitchCondition) *DoubleBuffer {
 	d.wg.Add(1)
 	go d.processor()
 
-	return d
+	return d, nil
 }
 
 func (d *DoubleBuffer) Write(p []byte) error {
@@ -365,22 +373,9 @@ func (d *DoubleBuffer) Write(p []byte) error {
 // If any of the conditions is met, the channel switch needs to be executed immediately.
 func (d *DoubleBuffer) needSwitch() bool {
 	currentCount := atomic.LoadInt32(&d.count)
-	if currentCount >= d.size {
-		return true
-	}
-
 	lastSwitch := time.UnixMilli(atomic.LoadInt64(&d.lastSwitch))
 	elapsed := time.Since(lastSwitch)
-	if elapsed >= d.interval {
-		return true
-	}
-	// Calculate capacity factor (0-1)
-	countFactor := float64(currentCount) / float64(d.size)
-	// Calculate switch time factor (0-1)
-	switchFactor := float64(elapsed) / float64(d.interval)
-	combined := Chanjet.TimeWeight*switchFactor + Chanjet.SizeWeight*countFactor
-
-	return combined > Chanjet.FullCapacity
+	return d.sw.NeedSwitch(currentCount, d.size, elapsed, d.interval)
 }
 
 // switchChannel Perform channel switching
