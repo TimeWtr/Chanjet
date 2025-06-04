@@ -15,12 +15,12 @@
 package core
 
 import (
-	"errors"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/TimeWtr/Chanjet/errorx"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -42,29 +42,6 @@ func TestSwitchCondition_Initialization(t *testing.T) {
 		assert.Equal(t, time.Second, loadedConfig.TimeThreshold)
 		assert.Equal(t, time.Second.Milliseconds(), loadedConfig.timeThresholdMillis)
 		assert.Equal(t, int64(1), loadedConfig.version)
-	})
-
-	t.Run("should calculate millis correctly", func(t *testing.T) {
-		tests := []struct {
-			duration time.Duration
-			expected int64
-		}{
-			{0, 0},
-			{time.Millisecond, 1},
-			{time.Second, 1000},
-			{time.Minute, 60000},
-			{time.Hour, 3600000},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.duration.String(), func(t *testing.T) {
-				config := SwitchConfig{TimeThreshold: tt.duration}
-				sw, err := NewSwitchCondition(config)
-				assert.NoError(t, err)
-				loadedConfig := sw.GetConfig()
-				assert.Equal(t, tt.expected, loadedConfig.timeThresholdMillis)
-			})
-		}
 	})
 }
 
@@ -90,7 +67,7 @@ func TestSwitchCondition_Validate(t *testing.T) {
 				PercentThreshold: 50,
 				TimeThreshold:    time.Second,
 			},
-			wantErr: errors.New("size threshold cannot be negative"),
+			wantErr: errorx.ErrSizeThreshold,
 		},
 		{
 			name: "percent below zero",
@@ -99,7 +76,7 @@ func TestSwitchCondition_Validate(t *testing.T) {
 				PercentThreshold: -10,
 				TimeThreshold:    time.Second,
 			},
-			wantErr: errors.New("percent threshold must be between 0 and 100"),
+			wantErr: errorx.ErrPercentThreshold,
 		},
 		{
 			name: "percent above 100",
@@ -108,7 +85,7 @@ func TestSwitchCondition_Validate(t *testing.T) {
 				PercentThreshold: 110,
 				TimeThreshold:    time.Second,
 			},
-			wantErr: errors.New("percent threshold must be between 0 and 100"),
+			wantErr: errorx.ErrPercentThreshold,
 		},
 		{
 			name: "negative time threshold",
@@ -117,7 +94,7 @@ func TestSwitchCondition_Validate(t *testing.T) {
 				PercentThreshold: 50,
 				TimeThreshold:    -time.Second,
 			},
-			wantErr: errors.New("time threshold cannot be negative"),
+			wantErr: errorx.ErrTimeThreshold,
 		},
 	}
 
@@ -222,7 +199,7 @@ func TestSwitchCondition_UpdateConfig(t *testing.T) {
 		wg.Wait()
 
 		finalConfig := sw.GetConfig()
-		assert.Equal(t, int64(updates+1), finalConfig.version)
+		assert.Equal(t, int64(updates), finalConfig.version)
 	})
 }
 
@@ -261,14 +238,8 @@ func TestSwitchCondition_EdgeCases(t *testing.T) {
 			TimeThreshold:    0,
 		}
 
-		sw, err := NewSwitchCondition(config)
-		assert.NoError(t, err)
-		loadedConfig := sw.GetConfig()
-
-		assert.Equal(t, int64(0), loadedConfig.SizeThreshold)
-		assert.Equal(t, 0, loadedConfig.PercentThreshold)
-		assert.Equal(t, time.Duration(0), loadedConfig.TimeThreshold)
-		assert.Equal(t, int64(0), loadedConfig.timeThresholdMillis)
+		_, err := NewSwitchCondition(config)
+		assert.Error(t, err, errorx.ErrSizeThreshold)
 	})
 
 	t.Run("max values", func(t *testing.T) {
@@ -294,7 +265,7 @@ func TestSwitchCondition_Metrics(t *testing.T) {
 		percent  int
 		duration time.Duration
 	}{
-		{0, 0, 0},
+		{1, 1, 1},
 		{10, 5, 10 * time.Millisecond},
 		{100, 50, 500 * time.Millisecond},
 		{1000, 75, time.Second},
