@@ -82,7 +82,7 @@ func (h *WrapHeap) Push(item *MinHeapItem) {
 	heap.Push(&h.heap, item)
 }
 
-func (h *WrapHeap) Peek() *MinHeapItem {
+func (h *WrapHeap) Pick() *MinHeapItem {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return heap.Pop(&h.heap).(*MinHeapItem)

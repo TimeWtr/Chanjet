@@ -76,13 +76,34 @@ const (
 )
 
 const (
-	SmallBatchSize  = 32
-	MediumBatchSize = 125
-	LargeBatchSize  = 256
-)
-
-const (
 	SizeWeight   = 0.6
 	TimeWeight   = 0.4
 	FullCapacity = 0.85
 )
+
+type ReadMode int
+
+const (
+	SafeRead ReadMode = iota + 1
+	ZeroCopyRead
+)
+
+func (m ReadMode) String() string {
+	switch m {
+	case SafeRead:
+		return "Safe read"
+	case ZeroCopyRead:
+		return "Zero-copy read"
+	default:
+		return "unknown"
+	}
+}
+
+func (m ReadMode) Validate() bool {
+	switch m {
+	case SafeRead, ZeroCopyRead:
+		return true
+	default:
+		return false
+	}
+}
