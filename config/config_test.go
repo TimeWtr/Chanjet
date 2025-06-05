@@ -129,7 +129,7 @@ func TestSwitchCondition_UpdateConfig(t *testing.T) {
 		sw, err := NewSwitchCondition(initial)
 		assert.NoError(t, err)
 
-		notify := sw.register()
+		notify := sw.Register()
 		<-notify
 
 		newConfig := SwitchConfig{
@@ -211,7 +211,7 @@ func TestSwitchCondition_Notify(t *testing.T) {
 			TimeThreshold:    time.Second,
 		})
 		assert.NoError(t, err)
-		notifyCh := sw.register()
+		notifyCh := sw.Register()
 
 		newConfig := SwitchConfig{
 			SizeThreshold:    200,

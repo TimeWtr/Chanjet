@@ -13,7 +13,7 @@
 // limitations under the License.
 
 package Chanjet
-	
+
 import "time"
 
 type SwitchStrategy interface {
@@ -21,6 +21,10 @@ type SwitchStrategy interface {
 }
 
 type DefaultStrategy struct{}
+
+func NewDefaultStrategy() SwitchStrategy {
+	return &DefaultStrategy{}
+}
 
 func (d *DefaultStrategy) NeedSwitch(currentCount, bufferSize int32, elapsed, interval time.Duration) bool {
 	if currentCount >= bufferSize {
@@ -42,11 +46,19 @@ func (d *DefaultStrategy) NeedSwitch(currentCount, bufferSize int32, elapsed, in
 
 type SizeOnlyStrategy struct{}
 
+func NewSizeOnlyStrategy() SwitchStrategy {
+	return &SizeOnlyStrategy{}
+}
+
 func (s *SizeOnlyStrategy) NeedSwitch(currentCount, bufferSize int32, _, _ time.Duration) bool {
 	return currentCount >= bufferSize
 }
 
 type TimeWindowOnlyStrategy struct{}
+
+func NewTimeWindowOnlyStrategy() SwitchStrategy {
+	return &TimeWindowOnlyStrategy{}
+}
 
 func (s *TimeWindowOnlyStrategy) NeedSwitch(_, _ int32, elapsed, interval time.Duration) bool {
 	return elapsed >= interval

@@ -14,6 +14,11 @@
 
 package core
 
+import (
+	"container/heap"
+	"sync"
+)
+
 type MinHeapItem struct {
 	sequence int64        // passive单调递增的全局唯一序列号，用于保证passive的全局有序性
 	buf      *SmartBuffer // Passive缓冲区
@@ -50,4 +55,42 @@ func (m *MinHeap) Pop() interface{} {
 	item.index = -1
 	*m = old[0 : n-1]
 	return item
+}
+
+type WrapHeap struct {
+	heap MinHeap
+	mu   sync.RWMutex
+}
+
+func NewWrapHeap() *WrapHeap {
+	heap.Init(&MinHeap{})
+	return &WrapHeap{
+		heap: MinHeap{},
+		mu:   sync.RWMutex{},
+	}
+}
+
+func (h *WrapHeap) Len() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.heap.Len()
+}
+
+func (h *WrapHeap) Push(item *MinHeapItem) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	heap.Push(&h.heap, item)
+}
+
+func (h *WrapHeap) Peek() *MinHeapItem {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return heap.Pop(&h.heap).(*MinHeapItem)
+}
+
+func (h *WrapHeap) PeekFirst() *MinHeapItem {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return h.heap[0]
 }
