@@ -71,7 +71,7 @@ func (s *SwitchCondition) validate(sc SwitchConfig) error {
 	return nil
 }
 
-func (s *SwitchCondition) register() <-chan struct{} {
+func (s *SwitchCondition) Register() <-chan struct{} {
 	return s.notify
 }
 

@@ -15,9 +15,9 @@
 package core
 
 import (
-	"container/heap"
 	"errors"
-	"log"
+	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,32 +57,37 @@ func WithMetrics(collector Chanjet.CollectorType) Options {
 	}
 }
 
-// WithSwitchCondition Set the channel switching conditions
-func WithSwitchCondition(config config.SwitchConfig) Options {
-	return func(buffer *DoubleBuffer) error {
-		return buffer.sc.UpdateConfig(config)
-	}
+//// WithSwitchCondition Set the channel switching conditions
+//func WithSwitchCondition(config config.SwitchConfig) Options {
+//	return func(buffer *DoubleBuffer) error {
+//		return buffer.sc.UpdateConfig(config)
+//	}
+//}
+
+type WrapSlice struct {
+	ptr unsafe.Pointer
+	len int32
 }
 
 type SmartBuffer struct {
-	buf    []unsafe.Pointer        // 存储[]byte对应的指针
-	head   int32                   // 写指针
-	tail   int32                   // 读指针
-	count  int32                   // 当前写入的数据条数
-	size   int32                   // 智能缓冲区的容量设置
-	status int32                   // 智能缓冲区的状态
-	pm     *pools.LifeCycleManager // 缓冲池生命周期管理器
+	buf      []WrapSlice             // stores the header information corresponding to []byte
+	head     int32                   // write index
+	tail     int32                   // read index
+	count    int32                   // the number of data currently written
+	capacity int32                   // smart buffer capacity setting
+	status   int32                   // smart buffer status
+	pm       *pools.LifeCycleManager // buffer pool lifecycle manager
 }
 
-func newSmartBuffer(size int32) *SmartBuffer {
+func newSmartBuffer(capacity int32) *SmartBuffer {
 	s := &SmartBuffer{
-		buf:    make([]unsafe.Pointer, size),
-		head:   -1,
-		tail:   -1,
-		count:  0,
-		size:   size,
-		status: Chanjet.WritingStatus,
-		pm:     pools.NewLifeCycleManager(),
+		buf:      make([]WrapSlice, capacity),
+		head:     -1,
+		tail:     -1,
+		count:    0,
+		capacity: capacity,
+		status:   Chanjet.WritingStatus,
+		pm:       pools.NewLifeCycleManager(),
 	}
 
 	go s.recycleWorker()
@@ -99,20 +104,26 @@ func (s *SmartBuffer) write(p []byte) bool {
 	}
 
 	l := len(p)
-	ptr := unsafe.Pointer(&p[0])
+	sli := WrapSlice{
+		len: int32(l),
+	}
 	switch {
 	case l < SmallDataThreshold:
 		buf, _ := s.pm.SmallPool.Get().([]byte)
 		buf = buf[:l]
 		copy(buf, p)
-		return s.push(unsafe.Pointer(&buf[0]), int32(l))
+		sli.ptr = unsafe.Pointer(&buf[0])
 	case l < LargeDataThreshold:
+		ptr := unsafe.Pointer(&p[0])
 		s.pm.BigDataPool.Put(uintptr(ptr), p)
-		return s.push(ptr, int32(l))
+		sli.ptr = ptr
 	default:
+		ptr := unsafe.Pointer(&p[0])
 		s.pm.MediumPool.Put(uintptr(ptr), time.Now())
-		return s.push(ptr, int32(l))
+		sli.ptr = ptr
 	}
+
+	return s.push(sli)
 }
 
 // zeroCopyRead is a non-safe API. When using this API, you must ensure that the data is not modified
@@ -123,44 +134,58 @@ func (s *SmartBuffer) zeroCopyRead() ([]byte, bool) {
 		return nil, false
 	}
 
+	slice := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+		Data: uintptr(ptr),
+		Len:  int(size),
+		Cap:  int(size),
+	}))
+
 	if size > LargeDataThreshold {
 		ptrVal := uintptr(ptr)
 		s.pm.BigDataPool.Release(ptrVal)
 	}
 
-	return *(*[]byte)(ptr), true
+	return slice, true
 }
 
-// safeRead 读取数据，安全API，默认返回副本
+// safeRead Read data, secure API, return default copy.
 func (s *SmartBuffer) safeRead() ([]byte, bool) {
-	ptr, l := s.pop()
+	ptr, size := s.pop()
+	if size == 0 {
+		return nil, false
+	}
 
+	slice := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+		Data: uintptr(ptr),
+		Len:  int(size),
+		Cap:  int(size),
+	}))
 	switch {
-	case l < SmallDataThreshold:
+	case size < SmallDataThreshold:
 		buf, _ := s.pm.SmallPool.Get().([]byte)
-		buf = buf[:l]
-		copy(buf, *(*[]byte)(ptr))
+		buf = buf[:size]
+		copy(buf, slice)
 		return buf, true
-	case l > LargeDataThreshold:
-		// 大数据返回副本（安全默认）
-		data := make([]byte, l)
+	case size > LargeDataThreshold:
+		// Big data returns a copy (safe default)
+		data := make([]byte, size)
 		copy(data, *(*[]byte)(ptr))
-		s.recycle(ptr, l)
+		s.recycle(ptr, size)
 		return data, true
 	default:
 		if s.pm.MediumPool.IsValid(uintptr(ptr)) {
-			// 有效期内的数据（零拷贝返回）
+			// Data within the validity period (zero copy return)
 			return *(*[]byte)(ptr), true
 		}
 
-		// 缓存失效，返回副本（安全默认）
-		data := make([]byte, l)
+		// Cache invalidation, return a copy (safe default)
+		data := make([]byte, size)
 		copy(data, *(*[]byte)(ptr))
 		return data, true
 	}
 }
 
-// Release 释放零拷贝API读取到的数据
+// Release the data read by the zero-copy API
 func (s *SmartBuffer) Release(data []byte) {
 	if len(data) < LargeDataThreshold {
 		return
@@ -170,48 +195,62 @@ func (s *SmartBuffer) Release(data []byte) {
 	s.pm.BigDataPool.Release(ptrVal)
 }
 
-// push 实际执行数据的写入
-func (s *SmartBuffer) push(ptr unsafe.Pointer, size int32) bool {
+// push The method that actually executes the data writing
+func (s *SmartBuffer) push(sli WrapSlice) bool {
 	if s.status == Chanjet.ClosedStatus {
 		return false
 	}
 
+	var head int32
 	for {
 		currentCount := atomic.LoadInt32(&s.count)
-		if currentCount >= size {
+		if currentCount >= s.capacity {
 			return false
 		}
 
-		if atomic.CompareAndSwapInt32(&s.count, currentCount, currentCount+1) {
+		head = atomic.LoadInt32(&s.head)
+		newHead := head + 1
+		if atomic.CompareAndSwapInt32(&s.head, head, newHead) {
 			break
 		}
 	}
 
-	atomic.AddInt32(&s.size, size)
-	pos := atomic.AddInt32(&s.head, 1) % s.size
+	pos := (head + 1) % s.capacity
 	if pos < 0 {
-		pos += s.size
+		pos += s.capacity
 	}
-	pos %= s.size
-	atomic.StorePointer(&s.buf[pos], ptr)
+	pos %= s.capacity
+
+	s.buf[pos] = sli
+	atomic.AddInt32(&s.count, 1)
 
 	return true
 }
 
-// pop 执行数据的获取，返回指针
+// pop Execute data acquisition and return pointer and data length
 func (s *SmartBuffer) pop() (unsafe.Pointer, int32) {
-	if atomic.LoadInt32(&s.count) == 0 {
+	var pos int32 = -1
+	for {
+		if atomic.LoadInt32(&s.count) == 0 {
+			return nil, 0
+		}
+
+		tail := atomic.LoadInt32(&s.tail)
+		newTail := tail + 1
+		if atomic.CompareAndSwapInt32(&s.tail, tail, newTail) {
+			pos = newTail % s.capacity
+			break
+		}
+	}
+
+	wrapper := s.buf[pos]
+	if wrapper.ptr == nil {
 		return nil, 0
 	}
 
-	pos := atomic.AddInt32(&s.tail, 1) % s.size
-	ptr := atomic.SwapPointer(&s.buf[pos], nil)
-	if ptr == nil {
-		return nil, 0
-	}
-
+	s.buf[pos] = WrapSlice{}
 	atomic.AddInt32(&s.count, ^int32(0))
-	return ptr, s.getSizeFromPtr(ptr)
+	return wrapper.ptr, wrapper.len
 }
 
 func (s *SmartBuffer) recycleWorker() {
@@ -231,10 +270,10 @@ func (s *SmartBuffer) recycleWorker() {
 	}
 }
 
-// recycle 释放资源，三种大小方式不一样。
-// 1. SmallData：获取ptr对应的[]byte，重置并放回到缓冲池中
-// 2. MediumData：将ptr与time的映射关系删除
-// 3. LargeData：将ptr在pool中的引用计数-1
+// recycle releases resources, three different sizes.
+// 1. SmallData: Get the []byte corresponding to ptr, reset and put it back into the buffer pool
+// 2. MediumData: Delete the mapping relationship between ptr and time
+// 3. LargeData: -1 the reference count of ptr in the pool
 func (s *SmartBuffer) recycle(ptr unsafe.Pointer, size int32) {
 	ptrVal := uintptr(ptr)
 	switch {
@@ -249,20 +288,15 @@ func (s *SmartBuffer) recycle(ptr unsafe.Pointer, size int32) {
 	}
 }
 
-// getSizeFromPtr 获取指针所指向值切片的长度
+// getSizeFromPtr Get the length of the value slice pointed to by the pointer
 func (s *SmartBuffer) getSizeFromPtr(ptr unsafe.Pointer) int32 {
-	return int32(len(*(*[]byte)(ptr)))
+	data := *(*[]byte)(ptr)
+	return int32(len(data))
 }
 
 func (s *SmartBuffer) Close() {
-	atomic.StoreInt32(&s.status, Chanjet.ClosedStatus)
-	for s.count > 0 {
-		ptr, _ := s.pop()
-		if ptr == nil {
-			continue
-		}
-
-		s.recycle(ptr, s.getSizeFromPtr(ptr))
+	if !atomic.CompareAndSwapInt32(&s.status, Chanjet.WritingStatus, Chanjet.ClosedStatus) {
+		return
 	}
 }
 
@@ -287,16 +321,10 @@ type DoubleBuffer struct {
 	status int32
 	// The time of last switch, in milliseconds
 	lastSwitch int64
-	// The time window for background rotation
-	interval time.Duration
 	// Blocking notifications for switching
 	swapSignal chan struct{}
 	// Switch pending state
 	swapPending int32
-	// Waiting for read Condition
-	directCond *sync.Cond
-	//Direct read lock
-	directMutex sync.RWMutex
 	// buffer object pool
 	pool sync.Pool
 	// Buffer for safe batch reads
@@ -317,31 +345,35 @@ type DoubleBuffer struct {
 	// corresponding to the smallest sequence. The passive that needs to be switched is directly written to
 	// the minimum heap for sorting. Each time it gets the passive that needs to be processed first, there
 	// is no need to block and wait.
-	pendingHeap *MinHeap
-	// Used to notify other goroutines that there are new passives to be processed.
-	heapCond *sync.Cond
-	// Lock used to protect passive writes to the minimum heap when switching channels.
-	heapMutex sync.Mutex
+	pendingHeap *WrapHeap
 	// Used to determine whether to enable indicator monitoring,
 	enableMetrics bool
 	// Batch indicator collector for receiving indicator data from double-buffered channels in real time.
 	mc metrics.BatchCollector
 	// The condition to switch channels.
-	sc *config.SwitchCondition
+	sc       config.SwitchConfig
+	scd      *config.SwitchCondition
+	scNotify <-chan struct{}
 	// The strategy switching channels.
 	sw Chanjet.SwitchStrategy
 }
 
 func NewDoubleBuffer(size int32, sc *config.SwitchCondition, opts ...Options) (*DoubleBuffer, error) {
 	d := &DoubleBuffer{
-		active:      newSmartBuffer(size),
-		passive:     newSmartBuffer(size),
-		readq:       make(chan [][]byte, 3*size),
-		stop:        make(chan struct{}),
-		size:        size,
-		sc:          sc,
-		lastSwitch:  time.Now().UnixMilli(),
-		pendingHeap: &MinHeap{},
+		active:          newSmartBuffer(size),
+		passive:         newSmartBuffer(size),
+		readq:           make(chan [][]byte, 3*size),
+		stop:            make(chan struct{}),
+		size:            size,
+		scd:             sc,
+		sc:              sc.GetConfig(),
+		scNotify:        sc.Register(),
+		lastSwitch:      time.Now().UnixMilli(),
+		pendingHeap:     NewWrapHeap(),
+		currentSequence: 1,
+		sw:              Chanjet.NewDefaultStrategy(),
+		swapSignal:      make(chan struct{}, 1),
+		mc:              metrics.NewBatchCollector(metrics.NewPrometheus()),
 	}
 
 	for _, opt := range opts {
@@ -358,13 +390,11 @@ func NewDoubleBuffer(size int32, sc *config.SwitchCondition, opts ...Options) (*
 
 	d.active, _ = d.pool.Get().(*SmartBuffer)
 	d.passive, _ = d.pool.Get().(*SmartBuffer)
-	d.directCond = sync.NewCond(&d.directMutex)
-	// initialize min heap
-	heap.Init(&MinHeap{})
-	d.heapCond = sync.NewCond(&d.heapMutex)
 
-	d.wg.Add(1)
+	d.wg = sync.WaitGroup{}
+	d.wg.Add(2)
 	go d.processor()
+	go d.swapMonitor()
 
 	return d, nil
 }
@@ -378,6 +408,7 @@ func (d *DoubleBuffer) Write(p []byte) error {
 		atomic.CompareAndSwapInt32(&d.swapPending, 0, 1)
 		select {
 		case d.swapSignal <- struct{}{}:
+			fmt.Println("write swapping signal success!")
 			d.switchChannel()
 		default:
 		}
@@ -385,11 +416,9 @@ func (d *DoubleBuffer) Write(p []byte) error {
 
 	// Try to write to buffer
 	if d.active.write(p) {
-		if atomic.LoadInt32(&d.passive.count) == 0 {
-			d.directCond.Broadcast()
-		}
+		atomic.AddInt32(&d.count, 1)
 	}
-	// TODO 处理写入
+
 	return nil
 }
 
@@ -403,40 +432,41 @@ func (d *DoubleBuffer) needSwitch() bool {
 	currentCount := atomic.LoadInt32(&d.count)
 	lastSwitch := time.UnixMilli(atomic.LoadInt64(&d.lastSwitch))
 	elapsed := time.Since(lastSwitch)
-	return d.sw.NeedSwitch(currentCount, d.size, elapsed, d.interval)
+	select {
+	case <-d.scNotify:
+		d.sc = d.scd.GetConfig()
+	default:
+	}
+	return d.sw.NeedSwitch(currentCount, d.size, elapsed, d.sc.TimeThreshold)
 }
 
 // switchChannel Perform channel switching
 func (d *DoubleBuffer) switchChannel() {
 	defer func() {
-		<-d.swapSignal
+		select {
+		case <-d.swapSignal:
+		default:
+		}
 	}()
 
 	if !atomic.CompareAndSwapInt32(&d.swapPending, 1, 0) {
 		return
 	}
 
-	oldActive := atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.active)))
-	oldPassive := atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.passive)))
 	newBuf, _ := d.pool.Get().(*SmartBuffer)
-
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&d.active)), oldPassive)
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&d.passive)),
-		unsafe.Pointer(newBuf))
-
-	d.directCond.Broadcast()
-	oldActiveVal := (*SmartBuffer)(oldActive)
+	oldActive := d.active
+	d.active, d.passive = d.passive, newBuf
 	seq := atomic.AddInt64(&d.sequence, 1)
 	item := MinHeapItem{
 		sequence: seq,
-		buf:      oldActiveVal,
+		buf:      oldActive,
 	}
 
-	d.heapMutex.Lock()
-	d.pendingHeap.Push(item)
-	d.heapMutex.Unlock()
+	d.pendingHeap.Push(&item)
+	count := atomic.LoadInt32(&d.count)
+	atomic.CompareAndSwapInt32(&d.count, count, 0)
 
-	d.heapCond.Signal()
+	fmt.Println("switch channel success!")
 }
 
 func (d *DoubleBuffer) swapMonitor() {
@@ -452,6 +482,7 @@ func (d *DoubleBuffer) swapMonitor() {
 				if atomic.CompareAndSwapInt32(&d.swapPending, 0, 1) {
 					select {
 					case d.swapSignal <- struct{}{}:
+						fmt.Println("ticker signal success!")
 					default:
 					}
 				}
@@ -475,37 +506,22 @@ func (d *DoubleBuffer) processor() {
 	bufferSize := Chanjet.SmallBatchSize
 
 	for {
-		d.heapMutex.Lock()
-		for {
-			select {
-			case <-d.stop:
-				d.drainProcessor()
-				d.heapMutex.Unlock()
-				return
-			default:
-			}
-
-			if d.pendingHeap.Len() > 0 {
-				top := (*d.pendingHeap)[0]
-				if top.sequence == atomic.LoadInt64(&d.currentSequence) {
-					break
-				}
-			}
-
-			if !d.condWithTimeout(100 * time.Millisecond) {
-				continue
-			}
+		select {
+		case <-d.stop:
+			d.drainProcessor()
+			return
+		default:
 		}
 
-		top := heap.Pop(d.pendingHeap).(MinHeapItem)
-		d.heapMutex.Unlock()
-
-		l := d.pendingHeap.Len()
-		if l == 0 {
-			d.heapMutex.Unlock()
+		if d.pendingHeap.Len() == 0 {
+			time.Sleep(time.Millisecond)
 			continue
 		}
 
+		top := d.pendingHeap.Peek()
+		fmt.Printf("top: %+v", top)
+		fmt.Println("current sequence", atomic.LoadInt64(&d.currentSequence))
+		l := d.pendingHeap.Len()
 		if l%mod == 0 {
 			switch {
 			case l < smallSize:
@@ -518,12 +534,11 @@ func (d *DoubleBuffer) processor() {
 		}
 
 		if top.sequence == atomic.LoadInt64(&d.currentSequence) {
+			fmt.Printf("handle buffer: %+v\n", top.buf.buf)
 			d.processBuffer(top.buf, bufferSize)
 			atomic.AddInt64(&d.currentSequence, 1)
 		} else {
-			d.heapMutex.Lock()
-			heap.Push(d.pendingHeap, top)
-			d.heapMutex.Unlock()
+			d.pendingHeap.Push(top)
 		}
 	}
 }
@@ -573,43 +588,12 @@ func (d *DoubleBuffer) processBuffer(buf *SmartBuffer, batchSize int) {
 }
 
 func (d *DoubleBuffer) drainProcessor() {
-	d.heapMutex.Lock()
-	defer d.heapMutex.Unlock()
-
 	for d.pendingHeap.Len() > 0 {
-		item := heap.Pop(d.pendingHeap).(MinHeapItem)
+		item := d.pendingHeap.Peek()
 		if item.buf != nil {
 			item.buf.Close()
 			d.pool.Put(item.buf)
 		}
-	}
-}
-
-func (d *DoubleBuffer) condWithTimeout(timeout time.Duration) bool {
-	ch := make(chan struct{})
-
-	go func() {
-		defer func() {
-			if err := recover(); err != nil {
-				log.Println("cond.Wait panic:", err)
-			}
-		}()
-		d.heapCond.Wait()
-		close(ch)
-	}()
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case <-ch:
-		return true
-	case <-timer.C:
-		d.heapCond.Broadcast()
-		return false
-	case <-d.stop:
-		d.heapCond.Broadcast()
-		return false
 	}
 }
 

@@ -63,9 +63,9 @@ func (l *LifeCycleManager) Cleanup() {
 }
 
 type MediumPool struct {
-	cache map[uintptr]time.Time // 对象与时间的映射关系
-	mu    sync.RWMutex          // 读写锁保护Cache
-	stop  chan struct{}         // 停止信号
+	cache map[uintptr]time.Time // the relationship of object uintptr and cache time
+	mu    sync.RWMutex          // read-write lock
+	stop  chan struct{}         // stop signal
 }
 
 func (m *MediumPool) Put(ptr uintptr, t time.Time) {
@@ -75,7 +75,7 @@ func (m *MediumPool) Put(ptr uintptr, t time.Time) {
 	m.cache[ptr] = t
 }
 
-// IsValid 判断是ptr是否合法
+// IsValid Determine whether ptr is legal.
 func (m *MediumPool) IsValid(ptr uintptr) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -88,7 +88,7 @@ func (m *MediumPool) IsValid(ptr uintptr) bool {
 	return time.Since(t) < mediumPoolTTL
 }
 
-// Release 释放资源
+// Release the method to release source.
 func (m *MediumPool) Release(ptr uintptr) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -111,8 +111,8 @@ func (m *MediumPool) cleanup() {
 }
 
 type BigDataPool struct {
-	pool map[uintptr]BigDataEntry // 对象与Entry的映射关系
-	mu   sync.RWMutex             // 读写锁保护
+	pool map[uintptr]BigDataEntry // the relationship of object uintptr and Entry
+	mu   sync.RWMutex             // read-write lock
 }
 
 func (b *BigDataPool) cleanup() {
@@ -129,7 +129,7 @@ func (b *BigDataPool) cleanup() {
 		}
 
 		delete(b.pool, ptr)
-		bd.data = nil // 释放底层数组
+		bd.data = nil
 	}
 }
 
@@ -144,7 +144,7 @@ func (b *BigDataPool) Put(ptr uintptr, data []byte) {
 	}
 }
 
-// Release 释放资源，减少ptr的引用计数
+// Release the source and reduce counter for this uintptr.
 func (b *BigDataPool) Release(ptr uintptr) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -158,7 +158,7 @@ func (b *BigDataPool) Release(ptr uintptr) {
 }
 
 type BigDataEntry struct {
-	size int    // 数据的大小
-	data []byte // 数据
-	ref  int    // 引用计数
+	size int    // data size
+	data []byte // data value
+	ref  int    // data reference counter
 }
