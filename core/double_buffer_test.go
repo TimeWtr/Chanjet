@@ -16,6 +16,7 @@ package core
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math/rand"
 	"runtime"
 	"sync"
@@ -180,7 +181,7 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db, err := NewDoubleBuffer(1000, sc)
+	db, err := NewDoubleBuffer(100, sc)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -188,11 +189,9 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		data := make([]byte, 64*1024)
-		data = fillRealisticData(data)
-
-		for i := 0; i < 20000; i++ {
-			err = db.Write(data)
+		template := "this is a template, seq: %d"
+		for i := 0; i < 200000; i++ {
+			err = db.Write([]byte(fmt.Sprintf(template, i)))
 			require.NoError(t, err)
 		}
 	}()
@@ -204,17 +203,18 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 
 		count := 0
 		for {
-			if count >= 20000 {
+			if count >= 200000 {
 				return
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			_, err1 := db.BlockingRead(ctx)
+			chunk, err1 := db.BlockingRead(ctx)
 			cancel()
 			if err1 != nil {
 				t.Log(err1)
 				continue
 			}
-			//t.Log("receive data: ", string(res))
+			t.Log("receive data: ", string(chunk.Bytes()))
+			chunk.Release()
 			count++
 		}
 	}()
@@ -286,9 +286,11 @@ func TestDoubleBuffer_SwitchConditions(t *testing.T) {
 }
 
 const (
-	TestBufferSize = 10000
-	TestItems      = 1000000
-	DataSize       = 128
+	TestBufferSize    = 10000
+	TestItems         = 1000000
+	_128BytesDataSize = 128
+	_64KBDataSize     = 64 * 1024
+	_1024KBDataSize   = 1024 * 1024
 )
 
 func BenchmarkBlockingRead_Throughput(b *testing.B) {
@@ -309,7 +311,7 @@ func BenchmarkBlockingRead_Throughput(b *testing.B) {
 	assert.NoError(b, err)
 
 	go func() {
-		data := make([]byte, DataSize)
+		data := make([]byte, _128BytesDataSize)
 		for i := 0; i < b.N; i++ {
 			if err = db.Write(data); err != nil {
 				return
@@ -464,13 +466,14 @@ func BenchmarkBlockingRead_PerfMetrics_64KB(b *testing.B) {
 		start := time.Now()
 
 		// This is the operation we're benchmarking
-		data, err := db.BlockingRead(ctx)
+		chunk, err := db.BlockingRead(ctx)
 		if err != nil {
 			b.Fatalf("BlockingRead failed: %v", err)
 		}
-		if len(data) != DataSize {
-			b.Fatalf("Unexpected data size: got %d, want %d", len(data), DataSize)
+		if len(chunk.Bytes()) != DataSize {
+			b.Fatalf("Unexpected data size: got %d, want %d", len(chunk.Bytes()), DataSize)
 		}
+		chunk.Release()
 
 		// Report custom metrics per operation
 		b.ReportMetric(float64(time.Since(start).Nanoseconds()), "ns/op")
@@ -482,4 +485,466 @@ func BenchmarkBlockingRead_PerfMetrics_64KB(b *testing.B) {
 		b.ReportMetric(float64(m.TotalAlloc), "bytes/op")
 	}
 	b.StopTimer()
+}
+
+func BenchmarkBlockingRead_Detailed(b *testing.B) {
+	defer goleak.VerifyNone(b, goleak.IgnoreCurrent())
+
+	// Setup switch config
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		PercentThreshold: 80,
+		TimeThreshold:    5 * time.Second,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Create buffer
+	db, err := NewDoubleBuffer(TestBufferSize, sc)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// Register read mode
+	if err = db.RegisterReadMode(Chanjet.ZeroCopyRead); err != nil {
+		b.Fatal(err)
+	}
+
+	// Writer goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		data := make([]byte, _128BytesDataSize)
+		for i := 0; ; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if err = db.Write(data); err != nil {
+					b.Logf("Write error: %v", err)
+					return
+				}
+				// Small delay to prevent overwhelming the buffer
+				time.Sleep(1 * time.Microsecond)
+			}
+		}
+	}()
+
+	// Reset timer before benchmark loop
+	b.ResetTimer()
+
+	// Run benchmark iterations
+	for i := 0; i < b.N; i++ {
+		// Start memory stats
+		var memBefore, memAfter runtime.MemStats
+		runtime.ReadMemStats(&memBefore)
+		start := time.Now()
+
+		// Perform read operation
+		chunk, err1 := db.BlockingRead(context.Background())
+		if err1 != nil {
+			b.Fatalf("BlockingRead failed: %v", err1)
+		}
+		if len(chunk.Bytes()) != _128BytesDataSize {
+			b.Fatalf("Unexpected data size: got %d, want %d", len(chunk.Bytes()), _128BytesDataSize)
+		}
+		chunk.Release()
+
+		// End memory stats
+		runtime.ReadMemStats(&memAfter)
+		latency := time.Since(start)
+
+		// Report custom metrics
+		b.ReportMetric(float64(latency.Nanoseconds()), "ns/op")
+		b.ReportMetric(float64(memAfter.Mallocs-memBefore.Mallocs), "allocs/op")
+		b.ReportMetric(float64(memAfter.TotalAlloc-memBefore.TotalAlloc), "bytes/op")
+	}
+
+	// Stop timer and clean up
+	b.StopTimer()
+	cancel()
+	wg.Wait()
+}
+
+func BenchmarkBlockingRead_Throughput_Zero_Copy_128Bytes(b *testing.B) {
+	defer goleak.VerifyNone(b, goleak.IgnoreCurrent())
+
+	// Setup switch config
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		PercentThreshold: 80,
+		TimeThreshold:    5 * time.Second,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Create buffer
+	db, err := NewDoubleBuffer(TestBufferSize, sc)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// Register read mode
+	if err = db.RegisterReadMode(Chanjet.ZeroCopyRead); err != nil {
+		b.Fatal(err)
+	}
+
+	// Writer goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		data := make([]byte, _128BytesDataSize)
+		for i := 0; ; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if err = db.Write(data); err != nil {
+					b.Logf("Write error: %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	// Reset timer before benchmark loop
+	b.ResetTimer()
+
+	// Run benchmark iterations
+	for i := 0; i < b.N; i++ {
+		_, err = db.BlockingRead(context.Background())
+		if err != nil {
+			b.Fatalf("BlockingRead failed: %v", err)
+		}
+	}
+
+	// Stop timer and clean up
+	b.StopTimer()
+	cancel()
+	wg.Wait()
+}
+
+func BenchmarkBlockingRead_Throughput_Safe_Read_128Bytes(b *testing.B) {
+	defer goleak.VerifyNone(b, goleak.IgnoreCurrent())
+
+	// Setup switch config
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		PercentThreshold: 80,
+		TimeThreshold:    5 * time.Second,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Create buffer
+	db, err := NewDoubleBuffer(TestBufferSize, sc)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// Register read mode
+	if err = db.RegisterReadMode(Chanjet.SafeRead); err != nil {
+		b.Fatal(err)
+	}
+
+	// Writer goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		data := make([]byte, _128BytesDataSize)
+		for i := 0; ; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if err = db.Write(data); err != nil {
+					b.Logf("Write error: %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	// Reset timer before benchmark loop
+	b.ResetTimer()
+
+	// Run benchmark iterations
+	for i := 0; i < b.N; i++ {
+		_, err = db.BlockingRead(context.Background())
+		if err != nil {
+			b.Fatalf("BlockingRead failed: %v", err)
+		}
+	}
+
+	// Stop timer and clean up
+	b.StopTimer()
+	cancel()
+	wg.Wait()
+}
+
+func BenchmarkBlockingRead_Throughput_Safe_Read_64KB(b *testing.B) {
+	defer goleak.VerifyNone(b, goleak.IgnoreCurrent())
+
+	// Setup switch config
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		PercentThreshold: 80,
+		TimeThreshold:    5 * time.Second,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Create buffer
+	db, err := NewDoubleBuffer(TestBufferSize, sc)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// Register read mode
+	if err = db.RegisterReadMode(Chanjet.SafeRead); err != nil {
+		b.Fatal(err)
+	}
+
+	// Writer goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		data := make([]byte, _64KBDataSize)
+		for i := 0; ; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if err = db.Write(data); err != nil {
+					b.Logf("Write error: %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	// Reset timer before benchmark loop
+	b.ResetTimer()
+
+	// Run benchmark iterations
+	for i := 0; i < b.N; i++ {
+		_, err = db.BlockingRead(context.Background())
+		if err != nil {
+			b.Fatalf("BlockingRead failed: %v", err)
+		}
+	}
+
+	// Stop timer and clean up
+	b.StopTimer()
+	cancel()
+	wg.Wait()
+}
+
+func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB(b *testing.B) {
+	defer goleak.VerifyNone(b, goleak.IgnoreCurrent())
+
+	// Setup switch config
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		PercentThreshold: 80,
+		TimeThreshold:    5 * time.Second,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Create buffer
+	db, err := NewDoubleBuffer(TestBufferSize, sc)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// Register read mode
+	if err = db.RegisterReadMode(Chanjet.ZeroCopyRead); err != nil {
+		b.Fatal(err)
+	}
+
+	// Writer goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		data := make([]byte, _64KBDataSize)
+		for i := 0; ; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if err = db.Write(data); err != nil {
+					b.Logf("Write error: %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	// Reset timer before benchmark loop
+	b.ResetTimer()
+
+	// Run benchmark iterations
+	for i := 0; i < b.N; i++ {
+		_, err = db.BlockingRead(context.Background())
+		if err != nil {
+			b.Fatalf("BlockingRead failed: %v", err)
+		}
+	}
+
+	// Stop timer and clean up
+	b.StopTimer()
+	cancel()
+	wg.Wait()
+}
+
+func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB_10Core(b *testing.B) {
+	defer goleak.VerifyNone(b, goleak.IgnoreCurrent())
+
+	// Setup switch config
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		PercentThreshold: 80,
+		TimeThreshold:    5 * time.Second,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Create buffer
+	db, err := NewDoubleBuffer(TestBufferSize, sc)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// Register read mode
+	if err = db.RegisterReadMode(Chanjet.ZeroCopyRead); err != nil {
+		b.Fatal(err)
+	}
+	b.SetParallelism(10)
+	// Writer goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		data := make([]byte, _64KBDataSize)
+		for i := 0; ; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if err = db.Write(data); err != nil {
+					b.Logf("Write error: %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	// Reset timer before benchmark loop
+	b.ResetTimer()
+
+	// Run benchmark iterations
+	for i := 0; i < b.N; i++ {
+		_, err = db.BlockingRead(context.Background())
+		if err != nil {
+			b.Fatalf("BlockingRead failed: %v", err)
+		}
+	}
+
+	// Stop timer and clean up
+	b.StopTimer()
+	cancel()
+	wg.Wait()
+}
+
+func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB_1Core(b *testing.B) {
+	defer goleak.VerifyNone(b, goleak.IgnoreCurrent())
+
+	// Setup switch config
+	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+		PercentThreshold: 80,
+		TimeThreshold:    5 * time.Second,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Create buffer
+	db, err := NewDoubleBuffer(TestBufferSize, sc)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	// Register read mode
+	if err = db.RegisterReadMode(Chanjet.ZeroCopyRead); err != nil {
+		b.Fatal(err)
+	}
+	b.SetParallelism(10)
+	// Writer goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		data := make([]byte, _64KBDataSize)
+		for i := 0; ; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if err = db.Write(data); err != nil {
+					b.Logf("Write error: %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	// Reset timer before benchmark loop
+	b.ResetTimer()
+
+	// Run benchmark iterations
+	for i := 0; i < b.N; i++ {
+		_, err = db.BlockingRead(context.Background())
+		if err != nil {
+			b.Fatalf("BlockingRead failed: %v", err)
+		}
+	}
+
+	// Stop timer and clean up
+	b.StopTimer()
+	cancel()
+	wg.Wait()
 }

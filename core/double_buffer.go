@@ -126,10 +126,10 @@ func (s *SmartBuffer) write(p []byte) bool {
 
 // zeroCopyRead is a non-safe API. When using this API, you must ensure that the data is not modified
 // after Write. Otherwise, the zero-copy data will be wrong.
-func (s *SmartBuffer) zeroCopyRead() ([]byte, bool) {
+func (s *SmartBuffer) zeroCopyRead() (DataChunk, bool) {
 	ptr, size := s.pop()
 	if ptr == nil {
-		return nil, false
+		return DataChunk{}, false
 	}
 
 	res := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
@@ -143,14 +143,19 @@ func (s *SmartBuffer) zeroCopyRead() ([]byte, bool) {
 		s.pm.BigDataPool.Release(ptrVal)
 	}
 
-	return res, true
+	return DataChunk{
+		data: res,
+		free: func() {
+			s.recycle(ptr, size)
+		},
+	}, true
 }
 
 // safeRead Read data, secure API, return default copy.
-func (s *SmartBuffer) safeRead() ([]byte, bool) {
+func (s *SmartBuffer) safeRead() (DataChunk, bool) {
 	ptr, size := s.pop()
 	if size == 0 {
-		return nil, false
+		return DataChunk{}, false
 	}
 
 	ptrData := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
@@ -158,28 +163,40 @@ func (s *SmartBuffer) safeRead() ([]byte, bool) {
 		Len:  int(size),
 		Cap:  int(size),
 	}))
+
 	switch {
 	case size < SmallDataThreshold:
 		buf, _ := s.pm.SmallPool.Get().([]byte)
 		buf = buf[:size]
 		copy(buf, ptrData)
-		return buf, true
+		return DataChunk{
+			data: buf,
+		}, true
 	case size > LargeDataThreshold:
 		// Big data returns a copy (safe default)
-		data := make([]byte, size)
-		copy(data, ptrData)
-		s.recycle(ptr, size)
-		return data, true
+		return DataChunk{
+			data: ptrData,
+			free: func() {
+				s.recycle(ptr, size)
+			},
+		}, true
 	default:
 		if s.pm.MediumPool.IsValid(uintptr(ptr)) {
 			// Data within the validity period (zero copy return)
-			return ptrData, true
+			return DataChunk{
+				data: ptrData,
+				free: func() {
+					s.recycle(ptr, size)
+				},
+			}, true
 		}
 
 		// Cache invalidation, return a copy (safe default)
 		data := make([]byte, size)
 		copy(data, ptrData)
-		return data, true
+		return DataChunk{
+			data: data,
+		}, true
 	}
 }
 
@@ -422,12 +439,26 @@ func (d *DoubleBuffer) Write(p []byte) error {
 	}
 
 	// Try to write to buffer
-	if d.active.write(p) {
-		atomic.AddInt32(&d.count, 1)
-		return nil
-	}
+	for {
+		if d.active.write(p) {
+			atomic.AddInt32(&d.count, 1)
+			return nil
+		}
 
-	return errors.New("write error")
+		if atomic.LoadInt32(&d.status) == Chanjet.ClosedStatus {
+			return errorx.ErrBufferClose
+		}
+
+		if !atomic.CompareAndSwapInt32(&d.swapPending, 0, 1) {
+			time.Sleep(time.Millisecond * 5)
+			continue
+		}
+		select {
+		case d.swapSignal <- struct{}{}:
+			d.switchChannel()
+		default:
+		}
+	}
 }
 
 // needSwitch determines whether a channel switch needs to be executed. The switching conditions
@@ -545,7 +576,7 @@ func (d *DoubleBuffer) RegisterReadMode(readMode Chanjet.ReadMode) error {
 // If there is data, read the data immediately and return. If there is no data, wait
 // for new data in a blocking manner until the context times out or the channel is closed.
 // It will not block forever.
-func (d *DoubleBuffer) BlockingRead(ctx context.Context) ([]byte, error) {
+func (d *DoubleBuffer) BlockingRead(ctx context.Context) (DataChunk, error) {
 	data, err := d.tryRead()
 	if err == nil {
 		return data, nil
@@ -558,20 +589,20 @@ func (d *DoubleBuffer) BlockingRead(ctx context.Context) ([]byte, error) {
 	case <-ch:
 		return d.tryRead()
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return DataChunk{}, ctx.Err()
 	case <-d.stop:
-		return nil, errorx.ErrBufferClose
+		return DataChunk{}, errorx.ErrBufferClose
 	}
 }
 
-func (d *DoubleBuffer) tryRead() ([]byte, error) {
+func (d *DoubleBuffer) tryRead() (DataChunk, error) {
 	if d.currentBuffer == nil || d.currentBuffer.len() == 0 {
 		if d.currentBuffer != nil {
 			d.currentBuffer.Close()
 		}
 
 		if !d.pickBufferFromHeap() {
-			return nil, errorx.ErrNoBuffer
+			return DataChunk{}, errorx.ErrNoBuffer
 		}
 	}
 
@@ -588,10 +619,10 @@ func (d *DoubleBuffer) tryRead() ([]byte, error) {
 			return res, nil
 		}
 	default:
-		return nil, errorx.ErrReadMode
+		return DataChunk{}, errorx.ErrReadMode
 	}
 
-	return nil, errorx.ErrRead
+	return DataChunk{}, errorx.ErrRead
 }
 
 func (d *DoubleBuffer) RegisterCallback(cb DataCallBack) UnregisterFunc {
