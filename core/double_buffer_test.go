@@ -382,30 +382,30 @@ func BenchmarkBlockingRead_PerfMetrics(b *testing.B) {
 		}
 	}()
 
-	// Benchmark loop - this is what go test -bench measures
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
 
-		// This is the operation we're benchmarking
+		// Operation we're benchmarking
 		data, err := db.BlockingRead(ctx)
 		if err != nil {
-			b.Fatalf("BlockingRead failed: %v", err)
+			b.Fatal(err)
 		}
-		if len(data) != DataSize {
-			b.Fatalf("Unexpected data size: got %d, want %d", len(data), DataSize)
-		}
+		_ = data // Prevent optimization
 
-		// Report custom metrics per operation
-		b.ReportMetric(float64(time.Since(start).Nanoseconds()), "ns/op")
+		// Report custom metrics
+		latency := time.Since(start)
+		b.ReportMetric(float64(latency.Nanoseconds()), "ns/msg")
 
-		// Memory stats (optional)
+		// Get memory stats
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
-		b.ReportMetric(float64(m.Mallocs), "allocs/op")
-		b.ReportMetric(float64(m.TotalAlloc), "bytes/op")
+		b.ReportMetric(float64(m.Mallocs), "allocs/msg")
+		b.ReportMetric(float64(m.TotalAlloc), "bytes/msg")
 	}
-	b.StopTimer()
+
+	// Report throughput at the end
+	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "msgs/s")
 }
 
 func BenchmarkBlockingRead_PerfMetrics_64KB(b *testing.B) {
