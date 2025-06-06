@@ -5,6 +5,7 @@ remote=$1
 url=$2
 echo >&2 "try push $2 to $1"
 
+
 # Run the code standards checker and exit if it fails.
 printf "Run the code checker...\n"
 if ! RESULT=$(make lint); then

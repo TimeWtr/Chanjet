@@ -28,3 +28,9 @@ var (
 	ErrPercentThreshold = errors.New("percent threshold must be between 0 and 100")
 	ErrTimeThreshold    = errors.New("time threshold cannot be negative")
 )
+
+var (
+	ErrNoBuffer = errors.New("no buffer to read")
+	ErrReadMode = errors.New("read mode error")
+	ErrRead     = errors.New("read error")
+)

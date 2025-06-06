@@ -27,4 +27,5 @@ go.work.sum
 .idea
 
 *.test
+
 *.pprof

@@ -2,6 +2,7 @@
 setup:
 	@sh ./scripts/setup.sh
 
+
 .PHONY: tidy
 tidy:
 	@go mod tidy

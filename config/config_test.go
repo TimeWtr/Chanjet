@@ -27,7 +27,6 @@ import (
 func TestSwitchCondition_Initialization(t *testing.T) {
 	t.Run("should initialize with valid config", func(t *testing.T) {
 		config := SwitchConfig{
-			SizeThreshold:    100,
 			PercentThreshold: 50,
 			TimeThreshold:    time.Second,
 		}
@@ -37,7 +36,6 @@ func TestSwitchCondition_Initialization(t *testing.T) {
 		assert.NotNil(t, sw)
 
 		loadedConfig := sw.GetConfig()
-		assert.Equal(t, int64(100), loadedConfig.SizeThreshold)
 		assert.Equal(t, 50, loadedConfig.PercentThreshold)
 		assert.Equal(t, time.Second, loadedConfig.TimeThreshold)
 		assert.Equal(t, time.Second.Milliseconds(), loadedConfig.timeThresholdMillis)
@@ -54,25 +52,14 @@ func TestSwitchCondition_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: SwitchConfig{
-				SizeThreshold:    100,
 				PercentThreshold: 50,
 				TimeThreshold:    time.Second,
 			},
 			wantErr: nil,
 		},
 		{
-			name: "negative size threshold",
-			config: SwitchConfig{
-				SizeThreshold:    -100,
-				PercentThreshold: 50,
-				TimeThreshold:    time.Second,
-			},
-			wantErr: errorx.ErrSizeThreshold,
-		},
-		{
 			name: "percent below zero",
 			config: SwitchConfig{
-				SizeThreshold:    100,
 				PercentThreshold: -10,
 				TimeThreshold:    time.Second,
 			},
@@ -81,7 +68,6 @@ func TestSwitchCondition_Validate(t *testing.T) {
 		{
 			name: "percent above 100",
 			config: SwitchConfig{
-				SizeThreshold:    100,
 				PercentThreshold: 110,
 				TimeThreshold:    time.Second,
 			},
@@ -90,7 +76,6 @@ func TestSwitchCondition_Validate(t *testing.T) {
 		{
 			name: "negative time threshold",
 			config: SwitchConfig{
-				SizeThreshold:    100,
 				PercentThreshold: 50,
 				TimeThreshold:    -time.Second,
 			},
@@ -101,7 +86,6 @@ func TestSwitchCondition_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sw, err := NewSwitchCondition(SwitchConfig{
-				SizeThreshold:    100,
 				PercentThreshold: 50,
 				TimeThreshold:    time.Second,
 			})
@@ -121,7 +105,6 @@ func TestSwitchCondition_Validate(t *testing.T) {
 func TestSwitchCondition_UpdateConfig(t *testing.T) {
 	t.Run("should update config successfully", func(t *testing.T) {
 		initial := SwitchConfig{
-			SizeThreshold:    100,
 			PercentThreshold: 50,
 			TimeThreshold:    time.Second,
 		}
@@ -133,7 +116,6 @@ func TestSwitchCondition_UpdateConfig(t *testing.T) {
 		<-notify
 
 		newConfig := SwitchConfig{
-			SizeThreshold:    200,
 			PercentThreshold: 75,
 			TimeThreshold:    2 * time.Second,
 		}
@@ -142,7 +124,6 @@ func TestSwitchCondition_UpdateConfig(t *testing.T) {
 		assert.NoError(t, err)
 
 		loadedConfig := sw.GetConfig()
-		assert.Equal(t, int64(200), loadedConfig.SizeThreshold)
 		assert.Equal(t, 75, loadedConfig.PercentThreshold)
 		assert.Equal(t, 2*time.Second, loadedConfig.TimeThreshold)
 		assert.Equal(t, int64(2000), loadedConfig.timeThresholdMillis)
@@ -151,7 +132,6 @@ func TestSwitchCondition_UpdateConfig(t *testing.T) {
 
 	t.Run("should increment version on each update", func(t *testing.T) {
 		sw, err := NewSwitchCondition(SwitchConfig{
-			SizeThreshold:    100,
 			PercentThreshold: 50,
 			TimeThreshold:    time.Second,
 		})
@@ -159,7 +139,6 @@ func TestSwitchCondition_UpdateConfig(t *testing.T) {
 
 		for i := 1; i <= 5; i++ {
 			config := SwitchConfig{
-				SizeThreshold:    int64(i * 100),
 				PercentThreshold: i * 10,
 				TimeThreshold:    time.Duration(i) * time.Second,
 			}
@@ -174,7 +153,6 @@ func TestSwitchCondition_UpdateConfig(t *testing.T) {
 
 	t.Run("should handle concurrent updates safely", func(t *testing.T) {
 		sw, err := NewSwitchCondition(SwitchConfig{
-			SizeThreshold:    100,
 			PercentThreshold: 50,
 			TimeThreshold:    time.Second,
 		})
@@ -188,7 +166,6 @@ func TestSwitchCondition_UpdateConfig(t *testing.T) {
 			go func(i int) {
 				defer wg.Done()
 				config := SwitchConfig{
-					SizeThreshold:    int64(i),
 					PercentThreshold: i,
 					TimeThreshold:    time.Duration(i) * time.Millisecond,
 				}
@@ -199,14 +176,13 @@ func TestSwitchCondition_UpdateConfig(t *testing.T) {
 		wg.Wait()
 
 		finalConfig := sw.GetConfig()
-		assert.Equal(t, int64(updates), finalConfig.version)
+		assert.Equal(t, int64(updates+1), finalConfig.version)
 	})
 }
 
 func TestSwitchCondition_Notify(t *testing.T) {
 	t.Run("should notify registered channel on update", func(t *testing.T) {
 		sw, err := NewSwitchCondition(SwitchConfig{
-			SizeThreshold:    100,
 			PercentThreshold: 50,
 			TimeThreshold:    time.Second,
 		})
@@ -214,7 +190,6 @@ func TestSwitchCondition_Notify(t *testing.T) {
 		notifyCh := sw.Register()
 
 		newConfig := SwitchConfig{
-			SizeThreshold:    200,
 			PercentThreshold: 75,
 			TimeThreshold:    2 * time.Second,
 		}
@@ -231,20 +206,8 @@ func TestSwitchCondition_Notify(t *testing.T) {
 }
 
 func TestSwitchCondition_EdgeCases(t *testing.T) {
-	t.Run("zero thresholds", func(t *testing.T) {
-		config := SwitchConfig{
-			SizeThreshold:    0,
-			PercentThreshold: 0,
-			TimeThreshold:    0,
-		}
-
-		_, err := NewSwitchCondition(config)
-		assert.Error(t, err, errorx.ErrSizeThreshold)
-	})
-
 	t.Run("max values", func(t *testing.T) {
 		config := SwitchConfig{
-			SizeThreshold:    int64(^uint64(0) >> 1), // max int64
 			PercentThreshold: 100,
 			TimeThreshold:    time.Duration(1<<63 - 1),
 		}
@@ -253,7 +216,6 @@ func TestSwitchCondition_EdgeCases(t *testing.T) {
 		assert.NoError(t, err)
 		loadedConfig := sw.GetConfig()
 
-		assert.Equal(t, int64(^uint64(0)>>1), loadedConfig.SizeThreshold)
 		assert.Equal(t, 100, loadedConfig.PercentThreshold)
 		assert.Equal(t, time.Duration(1<<63-1), loadedConfig.TimeThreshold)
 	})
@@ -275,7 +237,6 @@ func TestSwitchCondition_Metrics(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			config := SwitchConfig{
-				SizeThreshold:    tt.size,
 				PercentThreshold: tt.percent,
 				TimeThreshold:    tt.duration,
 			}
@@ -283,8 +244,6 @@ func TestSwitchCondition_Metrics(t *testing.T) {
 			sw, err := NewSwitchCondition(config)
 			assert.NoError(t, err)
 			loadedConfig := sw.GetConfig()
-
-			assert.Equal(t, tt.size, loadedConfig.SizeThreshold)
 			assert.Equal(t, tt.percent, loadedConfig.PercentThreshold)
 			assert.Equal(t, tt.duration, loadedConfig.TimeThreshold)
 			assert.Equal(t, tt.duration.Milliseconds(), loadedConfig.timeThresholdMillis)

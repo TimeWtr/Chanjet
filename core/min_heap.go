@@ -85,6 +85,10 @@ func (h *WrapHeap) Push(item *MinHeapItem) {
 func (h *WrapHeap) Pick() *MinHeapItem {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.heap.Len() == 0 {
+		return nil
+	}
+
 	return heap.Pop(&h.heap).(*MinHeapItem)
 }
 

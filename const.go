@@ -76,9 +76,9 @@ const (
 )
 
 const (
-	SizeWeight   = 0.6
-	TimeWeight   = 0.4
-	FullCapacity = 0.85
+	SizeWeight   float64 = 0.6
+	TimeWeight   float64 = 0.4
+	FullCapacity float64 = 0.85
 )
 
 type ReadMode int

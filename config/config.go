@@ -23,7 +23,6 @@ import (
 
 type SwitchConfig struct {
 	version             int64
-	SizeThreshold       int64
 	PercentThreshold    int
 	TimeThreshold       time.Duration
 	timeThresholdMillis int64
@@ -56,10 +55,6 @@ func NewSwitchCondition(config SwitchConfig) (*SwitchCondition, error) {
 }
 
 func (s *SwitchCondition) validate(sc SwitchConfig) error {
-	if sc.SizeThreshold <= 0 {
-		return errorx.ErrSizeThreshold
-	}
-
 	if sc.PercentThreshold < 0 || sc.PercentThreshold > 100 {
 		return errorx.ErrPercentThreshold
 	}
