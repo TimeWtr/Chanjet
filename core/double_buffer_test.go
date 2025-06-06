@@ -87,22 +87,22 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 	})
 
 	t.Run("Write and zero-copy read large data(128KB)", func(t *testing.T) {
-		sb := newSmartBuffer(100)
+		sb := newSmartBuffer(200)
 		defer sb.Close()
 
 		data := make([]byte, 128*1024)
 		data = fillRealisticData(data)
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 200; i++ {
 			rand.Read(data)
 			ok := sb.write(data)
 			require.True(t, ok)
 		}
 
-		for i := 1; i <= 100; i++ {
+		for i := 1; i <= 200; i++ {
 			readData, ok := sb.zeroCopyRead()
 			require.True(t, ok)
 			assert.Equal(t, data, readData)
-			assert.Equal(t, 100-i, sb.len())
+			assert.Equal(t, 200-i, sb.len())
 		}
 	})
 
@@ -188,9 +188,9 @@ func TestDoubleBuffer_BasicWriteRead(t *testing.T) {
 	}
 
 	for i := 0; i < 100; i++ {
-		res, err1 := db.ZeroCopyRead()
-		assert.NoError(t, err1)
-		t.Log(string(res))
+		//res, err1 := db.ZeroCopyRead()
+		//assert.NoError(t, err1)
+		//t.Log(string(res))
 	}
 }
 

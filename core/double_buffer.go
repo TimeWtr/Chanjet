@@ -488,52 +488,13 @@ func (d *DoubleBuffer) swapMonitor() {
 	}
 }
 
-func (d *DoubleBuffer) ZeroCopyRead() ([]byte, error) {
-	if d.currentBuffer == nil || d.currentBuffer.count == 0 {
-		if d.pendingHeap.Len() == 0 {
-			return nil, errors.New("no buffer")
-		}
-
-		if err := d.pickBufferFromHeap(); err != nil {
-			return nil, err
-		}
-	}
-
-	data, ok := d.currentBuffer.zeroCopyRead()
-	if !ok {
-		return nil, errors.New("no data")
-	}
-
-	return data, nil
-}
-
-func (d *DoubleBuffer) SafeRead() ([]byte, error) {
-	currentBuffer := d.currentBuffer
-	if currentBuffer == nil {
-		if d.pendingHeap.Len() == 0 {
-			return nil, errors.New("no buffer")
-		}
-
-		if err := d.pickBufferFromHeap(); err != nil {
-			return nil, err
-		}
-	}
-
-	data, ok := d.currentBuffer.safeRead()
-	if !ok {
-		return nil, errors.New("no data")
-	}
-
-	return data, nil
-}
-
-func (d *DoubleBuffer) pickBufferFromHeap() error {
+func (d *DoubleBuffer) pickBufferFromHeap() bool {
 	counter := 0
 	maxRetires := 3
 	for counter < maxRetires {
 		bufferItem := d.pendingHeap.Pick()
 		if bufferItem == nil {
-			return errors.New("no Data")
+			return false
 		}
 
 		if bufferItem.sequence == atomic.LoadInt64(&d.currentSequence) {
@@ -548,10 +509,10 @@ func (d *DoubleBuffer) pickBufferFromHeap() error {
 	}
 
 	if d.currentBuffer == nil {
-		return errors.New("no Data")
+		return false
 	}
 
-	return nil
+	return true
 }
 
 func (d *DoubleBuffer) RegisterReadMode(readMode Chanjet.ReadMode) error {
@@ -565,6 +526,30 @@ func (d *DoubleBuffer) RegisterReadMode(readMode Chanjet.ReadMode) error {
 }
 
 func (d *DoubleBuffer) BlockingRead(ctx context.Context) ([]byte, error) {
+	if d.currentBuffer == nil {
+		if d.pickBufferFromHeap() {
+			switch d.readMode {
+			case Chanjet.SafeRead:
+				res, ok := d.currentBuffer.safeRead()
+				if ok {
+					return res, nil
+				}
+			case Chanjet.ZeroCopyRead:
+				res, ok := d.currentBuffer.zeroCopyRead()
+				if ok {
+					return res, nil
+				}
+			}
+		}
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-d.stop:
+
+	}
+
 	return nil, nil
 }
 
