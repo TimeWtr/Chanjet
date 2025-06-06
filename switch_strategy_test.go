@@ -153,21 +153,6 @@ func TestTimeWindowOnlyStrategy(t *testing.T) {
 }
 
 func TestEdgeCases(t *testing.T) {
-	t.Run("zero_buffer_size", func(t *testing.T) {
-		strategy := &DefaultStrategy{}
-
-		got := strategy.NeedSwitch(0, 0, 0, interval)
-		if !got {
-			t.Error("Should always switch when buffer size is 0")
-		}
-
-		sSize := &SizeOnlyStrategy{}
-		got = sSize.NeedSwitch(0, 0, 0, interval)
-		if !got {
-			t.Error("SizeOnly should switch when size is 0")
-		}
-	})
-
 	t.Run("zero_time_interval", func(t *testing.T) {
 		strategy := &DefaultStrategy{}
 

@@ -22,7 +22,7 @@ import (
 )
 
 func TestWaiters_RegisterUnregister(t *testing.T) {
-	w := NewWaiters()
+	w := newWaiterManager()
 
 	id, _ := w.register()
 	if len(w.ws) != 1 {
@@ -39,12 +39,12 @@ func TestWaiters_RegisterUnregister(t *testing.T) {
 
 func TestWaiters_Notify(t *testing.T) {
 	t.Run("no waiters", func(t *testing.T) {
-		w := NewWaiters()
+		w := newWaiterManager()
 		w.notify(10)
 	})
 
 	t.Run("single notification", func(t *testing.T) {
-		w := NewWaiters()
+		w := newWaiterManager()
 		_, ch := w.register()
 
 		var wg sync.WaitGroup
@@ -70,7 +70,7 @@ func TestWaiters_Notify(t *testing.T) {
 			timeout     = 500 * time.Millisecond // 更长的超时时间
 		)
 
-		w := NewWaiters()
+		w := newWaiterManager()
 		var (
 			received int32
 			wg       sync.WaitGroup
@@ -100,7 +100,7 @@ func TestWaiters_Notify(t *testing.T) {
 }
 
 func TestWaiters_Close(t *testing.T) {
-	w := NewWaiters()
+	w := newWaiterManager()
 	_, ch := w.register()
 
 	var wg sync.WaitGroup
@@ -131,7 +131,7 @@ func TestWaiters_Close(t *testing.T) {
 }
 
 func TestWaiters_PoolReuse(t *testing.T) {
-	w := NewWaiters()
+	w := newWaiterManager()
 
 	pointers := make(map[<-chan struct{}]bool)
 	for i := 0; i < 10; i++ {
@@ -147,7 +147,7 @@ func TestWaiters_PoolReuse(t *testing.T) {
 
 func TestWaiters_EdgeCases(t *testing.T) {
 	t.Run("zero dataSize", func(t *testing.T) {
-		w := NewWaiters()
+		w := newWaiterManager()
 		w.register()
 		w.notify(0)
 		if len(w.ws) != 1 {
@@ -156,7 +156,7 @@ func TestWaiters_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("large dataSize", func(t *testing.T) {
-		w := NewWaiters()
+		w := newWaiterManager()
 		for i := 0; i < 2000; i++ {
 			w.register()
 		}
@@ -175,7 +175,7 @@ func TestWaiters_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("concurrent access", func(t *testing.T) {
-		w := NewWaiters()
+		w := newWaiterManager()
 		var wg sync.WaitGroup
 
 		wg.Add(1)

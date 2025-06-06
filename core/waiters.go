@@ -16,7 +16,7 @@ package core
 
 import "sync"
 
-type Waiters struct {
+type WaiterManager struct {
 	ws        map[int]chan struct{}
 	pool      sync.Pool
 	mu        sync.Mutex
@@ -24,8 +24,8 @@ type Waiters struct {
 	closed    bool
 }
 
-func NewWaiters() *Waiters {
-	return &Waiters{
+func newWaiterManager() *WaiterManager {
+	return &WaiterManager{
 		ws: make(map[int]chan struct{}),
 		pool: sync.Pool{
 			New: func() interface{} {
@@ -35,7 +35,7 @@ func NewWaiters() *Waiters {
 	}
 }
 
-func (w *Waiters) register() (int, <-chan struct{}) {
+func (w *WaiterManager) register() (int, <-chan struct{}) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -47,7 +47,7 @@ func (w *Waiters) register() (int, <-chan struct{}) {
 	return id, notify
 }
 
-func (w *Waiters) unregister(id int) {
+func (w *WaiterManager) unregister(id int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -66,7 +66,7 @@ func (w *Waiters) unregister(id int) {
 // Fast path: skip notification if there is no notification waiting, or it has been closed.
 // Slow path: use batch sending + non-blocking notification. When all notifications are
 // completed/no notification waiting for the notification party to end the notification,
-func (w *Waiters) notify(dataSize int) {
+func (w *WaiterManager) notify(dataSize int) {
 	const (
 		MaxWaitersPerBatch = 32
 		MaxTotalWaiters    = 1024
@@ -116,7 +116,7 @@ func (w *Waiters) notify(dataSize int) {
 	}
 }
 
-func (w *Waiters) Close() {
+func (w *WaiterManager) Close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.closed = true

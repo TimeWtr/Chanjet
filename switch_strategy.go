@@ -16,6 +16,8 @@ package Chanjet
 
 import "time"
 
+const MinBufferSize = 1
+
 type SwitchStrategy interface {
 	NeedSwitch(currentCount, bufferSize int32, elapsed, interval time.Duration) bool
 }
@@ -27,6 +29,10 @@ func NewDefaultStrategy() SwitchStrategy {
 }
 
 func (d *DefaultStrategy) NeedSwitch(currentCount, bufferSize int32, elapsed, interval time.Duration) bool {
+	if bufferSize < MinBufferSize {
+		bufferSize = MinBufferSize
+	}
+
 	if currentCount >= bufferSize {
 		return true
 	}
@@ -35,13 +41,21 @@ func (d *DefaultStrategy) NeedSwitch(currentCount, bufferSize int32, elapsed, in
 		return true
 	}
 
+	elapsedNs := elapsed.Nanoseconds()
+	intervalNs := interval.Nanoseconds()
+
 	// Calculate capacity factor (0-1)
 	countFactor := float64(currentCount) / float64(bufferSize)
 	// Calculate switch time factor (0-1)
-	switchFactor := float64(elapsed) / float64(interval)
+	switchFactor := float64(elapsedNs) / float64(intervalNs)
 	combined := TimeWeight*switchFactor + SizeWeight*countFactor
 
-	return combined > FullCapacity
+	return combined >= FullCapacity
+}
+
+func floatGreater(a, b float64) bool {
+	const epsilon = 1e-9
+	return (a - b) > epsilon
 }
 
 type SizeOnlyStrategy struct{}

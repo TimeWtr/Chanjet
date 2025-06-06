@@ -7,6 +7,8 @@ toolchain go1.24.1
 require (
 	github.com/prometheus/client_golang v1.22.0
 	github.com/stretchr/testify v1.10.0
+	go.uber.org/goleak v1.3.0
+	golang.org/x/net v0.33.0
 )
 
 require (
