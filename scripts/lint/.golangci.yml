@@ -22,7 +22,6 @@ issues:
     - .github
     - scripts
     - api
-    - config
     - deployment
 
 # All available settings of specific linters.

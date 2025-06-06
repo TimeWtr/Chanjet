@@ -339,7 +339,7 @@ func BenchmarkBlockingRead_PerfMetrics(b *testing.B) {
 	const (
 		TestBufferSize = 1024 * 1024 // 1MB buffer
 		DataSize       = 1024        // 1KB messages
-		WarmupMessages = 100000      // Pre-fill buffer
+		WarmupMessages = 1000000     // Pre-fill buffer
 	)
 
 	// Initialize
