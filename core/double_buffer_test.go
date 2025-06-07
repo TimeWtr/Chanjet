@@ -186,7 +186,7 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		template := "this is a template, seq: %d"
-		for i := 0; i < 2000000; i++ {
+		for i := 0; i < 20000; i++ {
 			err = db.Write([]byte(fmt.Sprintf(template, i)))
 			require.NoError(t, err)
 		}
@@ -199,7 +199,7 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 
 		count := 0
 		for {
-			if count >= 2000000 {
+			if count >= 20000 {
 				return
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)

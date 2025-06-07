@@ -1,11 +1,50 @@
 #!/bin/sh
 
 printf "exec checker...\n"
-if [ -n "$(make check)" ]; then
-  echo >&2 "[ERROR]: Some files have changed, please add the changed files to this submission!"
-  exit 1
+
+original_staged=$(git diff --cached --name-only)
+original_worktree=$(git diff --name-only)
+
+make check >/dev/null 2>&1
+check_status=$?
+
+changed_files=$(git diff --name-only)
+changed_after_check="$changed_files"
+
+if [ -n "$changed_after_check" ]; then
+    for file in $changed_after_check; do
+        if [ -e "$file" ]; then
+            git restore --quiet "$file"
+        fi
+    done
 fi
 
+if [ -n "$original_worktree" ]; then
+    for file in $original_worktree; do
+        if [ -e "$file" ]; then
+            git add --intent-to-add --quiet "$file" || true
+        fi
+    done
+fi
+
+if [ $check_status -ne 0 ] || [ -n "$changed_after_check" ]; then
+    echo >&2 "[ERROR]: Please fix the following:"
+
+    if [ $check_status -ne 0 ]; then
+        echo >&2 "- Tests or lint checks failed"
+        make check 2>&1 | sed 's/^/  /'
+    fi
+
+    if [ -n "$changed_after_check" ]; then
+        echo >&2 "- Files changed during checks:"
+        for file in $changed_after_check; do
+            echo >&2 "  $file"
+        done
+    fi
+
+    echo >&2 "Please fix the above issues before committing."
+    exit 1
+fi
 
 echo "exec checker end"
 exit 0
