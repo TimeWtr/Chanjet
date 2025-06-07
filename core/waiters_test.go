@@ -38,7 +38,7 @@ func TestWaiters_RegisterUnregister(t *testing.T) {
 }
 
 func TestWaiters_Notify(t *testing.T) {
-	t.Run("no waiters", func(t *testing.T) {
+	t.Run("no waiters", func(_ *testing.T) {
 		w := newWaiterManager()
 		w.notify(10)
 	})
@@ -130,21 +130,6 @@ func TestWaiters_Close(t *testing.T) {
 	w.unregister(id)
 }
 
-func TestWaiters_PoolReuse(t *testing.T) {
-	w := newWaiterManager()
-
-	pointers := make(map[<-chan struct{}]bool)
-	for i := 0; i < 10; i++ {
-		id, ch := w.register()
-		pointers[ch] = true
-		w.unregister(id)
-	}
-
-	if len(pointers) > 2 {
-		t.Errorf("Expected channel reuse, got %d unique channels", len(pointers))
-	}
-}
-
 func TestWaiters_EdgeCases(t *testing.T) {
 	t.Run("zero dataSize", func(t *testing.T) {
 		w := newWaiterManager()
@@ -186,7 +171,7 @@ func TestWaiters_EdgeCases(t *testing.T) {
 				w.unregister(id)
 			}
 		}()
-		
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

@@ -18,12 +18,13 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
-	"github.com/TimeWtr/Chanjet"
+	chanjet "github.com/TimeWtr/Chanjet"
 	"github.com/TimeWtr/Chanjet/config"
 	"github.com/TimeWtr/Chanjet/errorx"
 	"github.com/TimeWtr/Chanjet/metrics"
@@ -40,7 +41,7 @@ const (
 type Options func(buffer *DoubleBuffer) error
 
 // WithMetrics Enable indicator collection and specify the collector type
-func WithMetrics(collector Chanjet.CollectorType) Options {
+func WithMetrics(collector chanjet.CollectorType) Options {
 	return func(buffer *DoubleBuffer) error {
 		if !collector.Validate() {
 			return errors.New("invalid metrics collector")
@@ -48,9 +49,9 @@ func WithMetrics(collector Chanjet.CollectorType) Options {
 
 		buffer.enableMetrics = true
 		switch collector {
-		case Chanjet.PrometheusCollector:
+		case chanjet.PrometheusCollector:
 			buffer.mc = metrics.NewBatchCollector(metrics.NewPrometheus())
-		case Chanjet.OpenTelemetryCollector:
+		case chanjet.OpenTelemetryCollector:
 		}
 
 		return nil
@@ -85,12 +86,13 @@ func newSmartBuffer(capacity int32) *SmartBuffer {
 		buf:      make([]BufferItem, capacity),
 		head:     -1,
 		tail:     -1,
-		count:    0,
 		capacity: capacity,
-		status:   Chanjet.WritingStatus,
+		status:   chanjet.WritingStatus,
 		pm:       pools.NewLifeCycleManager(),
 		sem:      make(chan struct{}),
 	}
+
+	atomic.StoreInt32(&s.count, 0)
 
 	return s
 }
@@ -99,8 +101,13 @@ func (s *SmartBuffer) len() int {
 	return int(atomic.LoadInt32(&s.count))
 }
 
+func (s *SmartBuffer) createByteSliceFromPointer(ptr unsafe.Pointer, size int32) []byte {
+	bytePtr := (*byte)(ptr)
+	return unsafe.Slice(bytePtr, int(size))
+}
+
 func (s *SmartBuffer) write(p []byte) bool {
-	if s.status == Chanjet.ClosedStatus {
+	if s.status == chanjet.ClosedStatus {
 		return false
 	}
 
@@ -132,11 +139,7 @@ func (s *SmartBuffer) zeroCopyRead() (DataChunk, bool) {
 		return DataChunk{}, false
 	}
 
-	res := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
-		Data: uintptr(ptr),
-		Len:  int(size),
-		Cap:  int(size),
-	}))
+	res := s.createByteSliceFromPointer(ptr, size)
 
 	if size > LargeDataThreshold {
 		ptrVal := uintptr(ptr)
@@ -158,24 +161,19 @@ func (s *SmartBuffer) safeRead() (DataChunk, bool) {
 		return DataChunk{}, false
 	}
 
-	ptrData := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
-		Data: uintptr(ptr),
-		Len:  int(size),
-		Cap:  int(size),
-	}))
-
+	res := s.createByteSliceFromPointer(ptr, size)
 	switch {
 	case size < SmallDataThreshold:
 		buf, _ := s.pm.SmallPool.Get().([]byte)
 		buf = buf[:size]
-		copy(buf, ptrData)
+		copy(buf, res)
 		return DataChunk{
 			data: buf,
 		}, true
 	case size > LargeDataThreshold:
 		// Big data returns a copy (safe default)
 		return DataChunk{
-			data: ptrData,
+			data: res,
 			free: func() {
 				s.recycle(ptr, size)
 			},
@@ -184,7 +182,7 @@ func (s *SmartBuffer) safeRead() (DataChunk, bool) {
 		if s.pm.MediumPool.IsValid(uintptr(ptr)) {
 			// Data within the validity period (zero copy return)
 			return DataChunk{
-				data: ptrData,
+				data: res,
 				free: func() {
 					s.recycle(ptr, size)
 				},
@@ -193,7 +191,7 @@ func (s *SmartBuffer) safeRead() (DataChunk, bool) {
 
 		// Cache invalidation, return a copy (safe default)
 		data := make([]byte, size)
-		copy(data, ptrData)
+		copy(data, res)
 		return DataChunk{
 			data: data,
 		}, true
@@ -210,62 +208,85 @@ func (s *SmartBuffer) Release(data []byte) {
 	s.pm.BigDataPool.Release(ptrVal)
 }
 
-// push The method that actually executes the data writing
-func (s *SmartBuffer) push(sli BufferItem) bool {
-	if s.status == Chanjet.ClosedStatus {
-		return false
+func (s *SmartBuffer) calcPos(index int32) int32 {
+	if s.capacity <= 0 {
+		return 0
 	}
 
-	var head int32
+	pos := index % s.capacity
+	if pos < 0 {
+		pos += s.capacity
+	}
+	return pos % s.capacity
+}
+
+// push The method that actually executes the data writing
+func (s *SmartBuffer) push(sli BufferItem) bool {
 	for {
 		currentCount := atomic.LoadInt32(&s.count)
 		if currentCount >= s.capacity {
 			return false
 		}
 
-		head = atomic.LoadInt32(&s.head)
+		head := atomic.LoadInt32(&s.head)
 		newHead := head + 1
 		if atomic.CompareAndSwapInt32(&s.head, head, newHead) {
-			break
+			pos := s.calcPos(head)
+
+			const maxRetry = 3
+			for i := 0; i < maxRetry; i++ {
+				if s.buf[pos].ptr == nil {
+					break
+				}
+
+				if i < maxRetry-1 {
+					runtime.Gosched()
+				}
+			}
+
+			s.buf[pos] = sli
+			atomic.AddInt32(&s.count, 1)
+			return true
 		}
+
+		runtime.Gosched()
 	}
-
-	pos := (head + 1) % s.capacity
-	if pos < 0 {
-		pos += s.capacity
-	}
-	pos %= s.capacity
-
-	s.buf[pos] = sli
-	atomic.AddInt32(&s.count, 1)
-
-	return true
 }
 
 // pop Execute data acquisition and return pointer and data length
-func (s *SmartBuffer) pop() (unsafe.Pointer, int32) {
-	var pos int32 = -1
+func (s *SmartBuffer) pop() (ptr unsafe.Pointer, size int32) {
 	for {
-		if atomic.LoadInt32(&s.count) == 0 {
+		currentCount := atomic.LoadInt32(&s.count)
+		if currentCount == 0 {
 			return nil, 0
 		}
 
 		tail := atomic.LoadInt32(&s.tail)
 		newTail := tail + 1
 		if atomic.CompareAndSwapInt32(&s.tail, tail, newTail) {
-			pos = newTail % s.capacity
-			break
+			pos := s.calcPos(tail)
+
+			const maxRetry = 3
+			var item BufferItem
+			for i := 0; i < maxRetry; i++ {
+				item = s.buf[pos]
+				if item.ptr != nil {
+					break
+				}
+
+				if i < maxRetry-1 {
+					runtime.Gosched()
+				}
+			}
+
+			s.buf[pos] = BufferItem{}
+			atomic.AddInt32(&s.count, -1)
+
+			return item.ptr, item.size
 		}
-	}
 
-	wrapper := s.buf[pos]
-	if wrapper.ptr == nil {
-		return nil, 0
+		runtime.Gosched()
 	}
-
-	s.buf[pos] = BufferItem{}
-	atomic.AddInt32(&s.count, ^int32(0))
-	return wrapper.ptr, wrapper.size
 }
 
 //func (s *SmartBuffer) recycleWorker() {
@@ -310,7 +331,7 @@ func (s *SmartBuffer) recycle(ptr unsafe.Pointer, size int32) {
 }
 
 func (s *SmartBuffer) Close() {
-	if !atomic.CompareAndSwapInt32(&s.status, Chanjet.WritingStatus, Chanjet.ClosedStatus) {
+	if !atomic.CompareAndSwapInt32(&s.status, chanjet.WritingStatus, chanjet.ClosedStatus) {
 		return
 	}
 
@@ -328,6 +349,8 @@ type DoubleBuffer struct {
 	// The asynchronous read buffer is assigned a new buffer and switched to the active buffer to
 	// receive write data in real time.
 	passive *SmartBuffer
+	// The lock to protect channels, such as swap channel and write data.
+	channelLock sync.RWMutex
 	// The buffer should to read data.
 	currentBuffer *SmartBuffer
 	// Turn off buffer signal
@@ -365,18 +388,19 @@ type DoubleBuffer struct {
 	// the minimum heap for sorting. Each time it gets the passive that needs to be processed first, there
 	// is no need to block and wait.
 	pendingHeap *WrapHeap
-	// Used to determine whether to enable indicator monitoring,
+	// Used to determine whether to enable indicator monitoring.
 	enableMetrics bool
 	// Batch indicator collector for receiving indicator data from double-buffered channels in real time.
 	mc metrics.BatchCollector
+	// The config to switch channel.
+	sc config.SwitchConfig
 	// The condition to switch channels.
-	sc       config.SwitchConfig
 	scd      *config.SwitchCondition
 	scNotify <-chan struct{}
 	// The strategy switching channels.
-	sw Chanjet.SwitchStrategy
+	sw chanjet.SwitchStrategy
 	// The read mode, include zero copy read and safe read.
-	readMode *Chanjet.ReadMode
+	readMode *chanjet.ReadMode
 	// Waiters manager
 	wm *WaiterManager
 }
@@ -393,7 +417,7 @@ func NewDoubleBuffer(size int32, sc *config.SwitchCondition, opts ...Options) (*
 		lastSwitch:      time.Now().UnixMilli(),
 		pendingHeap:     NewWrapHeap(),
 		currentSequence: 1,
-		sw:              Chanjet.NewDefaultStrategy(),
+		sw:              chanjet.NewDefaultStrategy(),
 		swapSignal:      make(chan struct{}, 1),
 		mc:              metrics.NewBatchCollector(metrics.NewPrometheus()),
 		wg:              sync.WaitGroup{},
@@ -422,11 +446,14 @@ func NewDoubleBuffer(size int32, sc *config.SwitchCondition, opts ...Options) (*
 }
 
 func (d *DoubleBuffer) Write(p []byte) error {
-	if atomic.LoadInt32(&d.status) == Chanjet.ClosedStatus {
+	if atomic.LoadInt32(&d.status) == chanjet.ClosedStatus {
 		return errorx.ErrBufferClose
 	}
 
-	const mod = 10
+	const (
+		mod       = 10
+		sleepTime = time.Millisecond * 5
+	)
 	if atomic.LoadInt32(&d.count)%mod == 0 {
 		if d.needSwitch() {
 			atomic.CompareAndSwapInt32(&d.swapPending, 0, 1)
@@ -440,19 +467,23 @@ func (d *DoubleBuffer) Write(p []byte) error {
 
 	// Try to write to buffer
 	for {
+		d.channelLock.RLock()
 		if d.active.write(p) {
+			d.channelLock.RUnlock()
 			atomic.AddInt32(&d.count, 1)
 			return nil
 		}
+		d.channelLock.RUnlock()
 
-		if atomic.LoadInt32(&d.status) == Chanjet.ClosedStatus {
+		if atomic.LoadInt32(&d.status) == chanjet.ClosedStatus {
 			return errorx.ErrBufferClose
 		}
 
 		if !atomic.CompareAndSwapInt32(&d.swapPending, 0, 1) {
-			time.Sleep(time.Millisecond * 5)
+			time.Sleep(sleepTime)
 			continue
 		}
+
 		select {
 		case d.swapSignal <- struct{}{}:
 			d.switchChannel()
@@ -494,20 +525,31 @@ func (d *DoubleBuffer) switchChannel() {
 	}
 
 	newBuf, _ := d.pool.Get().(*SmartBuffer)
+	for {
+		buf := d.swapChannels(newBuf)
+		atomic.StoreInt32(&d.count, 0)
+		atomic.StoreInt64(&d.lastSwitch, time.Now().UnixMilli())
+
+		seq := atomic.AddInt64(&d.sequence, 1)
+		item := MinHeapItem{
+			sequence: seq,
+			buf:      buf,
+		}
+		buf.Close()
+		d.pendingHeap.Push(&item)
+
+		go d.wm.notify(buf.len())
+		break
+	}
+}
+
+func (d *DoubleBuffer) swapChannels(newBuf *SmartBuffer) *SmartBuffer {
+	d.channelLock.Lock()
+	defer d.channelLock.Unlock()
+
 	oldActive := d.active
 	d.active, d.passive = d.passive, newBuf
-	seq := atomic.AddInt64(&d.sequence, 1)
-	item := MinHeapItem{
-		sequence: seq,
-		buf:      oldActive,
-	}
-	oldActive.Close()
-
-	d.pendingHeap.Push(&item)
-	count := atomic.LoadInt32(&d.count)
-	atomic.CompareAndSwapInt32(&d.count, count, 0)
-	atomic.StoreInt64(&d.lastSwitch, time.Now().UnixMilli())
-	go d.wm.notify(oldActive.len())
+	return oldActive
 }
 
 func (d *DoubleBuffer) swapMonitor() {
@@ -525,17 +567,17 @@ func (d *DoubleBuffer) swapMonitor() {
 				if atomic.CompareAndSwapInt32(&d.swapPending, 0, 1) {
 					select {
 					case d.swapSignal <- struct{}{}:
+						d.switchChannel()
 					default:
 					}
 				}
 			}
-		case <-d.swapSignal:
-			d.switchChannel()
 		}
 	}
 }
 
 func (d *DoubleBuffer) pickBufferFromHeap() bool {
+	const timeSleep = 100 * time.Millisecond
 	counter := 0
 	maxRetires := 3
 	for counter < maxRetires {
@@ -552,17 +594,13 @@ func (d *DoubleBuffer) pickBufferFromHeap() bool {
 
 		d.pendingHeap.Push(bufferItem)
 		counter++
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(timeSleep)
 	}
 
-	if d.currentBuffer == nil {
-		return false
-	}
-
-	return true
+	return d.currentBuffer != nil
 }
 
-func (d *DoubleBuffer) RegisterReadMode(readMode Chanjet.ReadMode) error {
+func (d *DoubleBuffer) RegisterReadMode(readMode chanjet.ReadMode) error {
 	if !readMode.Validate() {
 		return errors.New("invalid read mode")
 	}
@@ -606,14 +644,14 @@ func (d *DoubleBuffer) tryRead() (DataChunk, error) {
 		}
 	}
 
-	readMode := *(*Chanjet.ReadMode)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.readMode))))
+	readMode := *(*chanjet.ReadMode)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.readMode))))
 	switch readMode {
-	case Chanjet.SafeRead:
+	case chanjet.SafeRead:
 		res, ok := d.currentBuffer.safeRead()
 		if ok {
 			return res, nil
 		}
-	case Chanjet.ZeroCopyRead:
+	case chanjet.ZeroCopyRead:
 		res, ok := d.currentBuffer.zeroCopyRead()
 		if ok {
 			return res, nil
@@ -625,14 +663,12 @@ func (d *DoubleBuffer) tryRead() (DataChunk, error) {
 	return DataChunk{}, errorx.ErrRead
 }
 
-func (d *DoubleBuffer) RegisterCallback(cb DataCallBack) UnregisterFunc {
-	//TODO implement me
-	panic("implement me")
+func (d *DoubleBuffer) RegisterCallback(_ DataCallBack) UnregisterFunc {
+	return func() {}
 }
 
-func (d *DoubleBuffer) BatchRead(ctx context.Context, batchSize int) [][]byte {
-	//TODO implement me
-	panic("implement me")
+func (d *DoubleBuffer) BatchRead(_ context.Context, _ int) [][]byte {
+	return nil
 }
 
 func (d *DoubleBuffer) drainProcessor() {
@@ -646,16 +682,20 @@ func (d *DoubleBuffer) drainProcessor() {
 }
 
 func (d *DoubleBuffer) Close() {
-	if !atomic.CompareAndSwapInt32(&d.status, Chanjet.WritingStatus, Chanjet.ClosedStatus) {
+	if !atomic.CompareAndSwapInt32(&d.status, chanjet.WritingStatus, chanjet.ClosedStatus) {
 		return
 	}
 
 	close(d.stop)
-	d.active.Close()
-	d.pool.Put(d.active)
+	if d.active != nil {
+		d.active.Close()
+		d.pool.Put(d.active)
+	}
 
-	d.passive.Close()
-	d.pool.Put(d.passive)
+	if d.passive != nil {
+		d.passive.Close()
+		d.pool.Put(d.passive)
+	}
 	d.wg.Wait()
 
 	d.drainProcessor()

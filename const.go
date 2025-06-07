@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package Chanjet
+package chanjet
+
+const Unknown = "unknown"
 
 type CollectorType int
 
@@ -28,7 +30,7 @@ func (c CollectorType) String() string {
 	case OpenTelemetryCollector:
 		return "OpenTelemetry"
 	default:
-		return "unknown"
+		return Unknown
 	}
 }
 

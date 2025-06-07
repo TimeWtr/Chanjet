@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package Chanjet
+package chanjet
 
 import "time"
 
@@ -51,11 +51,6 @@ func (d *DefaultStrategy) NeedSwitch(currentCount, bufferSize int32, elapsed, in
 	combined := TimeWeight*switchFactor + SizeWeight*countFactor
 
 	return combined >= FullCapacity
-}
-
-func floatGreater(a, b float64) bool {
-	const epsilon = 1e-9
-	return (a - b) > epsilon
 }
 
 type SizeOnlyStrategy struct{}

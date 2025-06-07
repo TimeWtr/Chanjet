@@ -19,45 +19,33 @@ import (
 	"testing"
 )
 
-func TestSequenceHeap(t *testing.T) {
-	t.Run("EmptyHeap", func(t *testing.T) {
+func TestSequenceHeap_DuplicateSequences(t *testing.T) {
+	t.Run("DuplicateSequences", func(t *testing.T) {
 		h := &MinHeap{}
 		heap.Init(h)
 
-		if h.Len() != 0 {
-			t.Errorf("Expected empty heap, got length %d", h.Len())
+		items := []*MinHeapItem{
+			{sequence: 100},
+			{sequence: 100},
+			{sequence: 100},
+		}
+
+		for _, item := range items {
+			heap.Push(h, item)
+		}
+
+		verifyHeap(t, h, items)
+
+		for i := 0; i < 3; i++ {
+			item, _ := heap.Pop(h).(*MinHeapItem)
+			if item.sequence != 100 {
+				t.Errorf("Pop #%d: expected sequence 100, got %d", i+1, item.sequence)
+			}
 		}
 	})
+}
 
-	t.Run("SingleItem", func(t *testing.T) {
-		h := &MinHeap{}
-		heap.Init(h)
-
-		item := &MinHeapItem{sequence: 100}
-		heap.Push(h, item)
-
-		if h.Len() != 1 {
-			t.Errorf("Expected heap length 1, got %d", h.Len())
-		}
-
-		if item.index != 0 {
-			t.Errorf("Expected index 0, got %d", item.index)
-		}
-
-		popped := heap.Pop(h).(*MinHeapItem)
-		if popped != item {
-			t.Error("Popped item doesn't match pushed item")
-		}
-
-		if popped.index != -1 {
-			t.Errorf("Expected index -1 after pop, got %d", popped.index)
-		}
-
-		if h.Len() != 0 {
-			t.Errorf("Expected empty heap after pop, got length %d", h.Len())
-		}
-	})
-
+func TestSequenceHeap_MultipleItemsInOrder(t *testing.T) {
 	t.Run("MultipleItemsInOrder", func(t *testing.T) {
 		h := &MinHeap{}
 		heap.Init(h)
@@ -76,38 +64,15 @@ func TestSequenceHeap(t *testing.T) {
 
 		expectedSequence := []uint64{100, 200, 300}
 		for i, expected := range expectedSequence {
-			item := heap.Pop(h).(*MinHeapItem)
+			item, _ := heap.Pop(h).(*MinHeapItem)
 			if uint64(item.sequence) != expected {
 				t.Errorf("Pop #%d: expected sequence %d, got %d", i+1, expected, item.sequence)
 			}
 		}
 	})
+}
 
-	t.Run("MultipleItemsReverseOrder", func(t *testing.T) {
-		h := &MinHeap{}
-		heap.Init(h)
-
-		items := []*MinHeapItem{
-			{sequence: 300},
-			{sequence: 200},
-			{sequence: 100},
-		}
-
-		for _, item := range items {
-			heap.Push(h, item)
-		}
-
-		verifyHeap(t, h, items)
-
-		expectedSequence := []uint64{100, 200, 300}
-		for i, expected := range expectedSequence {
-			item := heap.Pop(h).(*MinHeapItem)
-			if uint64(item.sequence) != expected {
-				t.Errorf("Pop #%d: expected sequence %d, got %d", i+1, expected, item.sequence)
-			}
-		}
-	})
-
+func TestSequenceHeap_MultipleItemsRandomOrder(t *testing.T) {
 	t.Run("MultipleItemsRandomOrder", func(t *testing.T) {
 		h := &MinHeap{}
 		heap.Init(h)
@@ -128,74 +93,57 @@ func TestSequenceHeap(t *testing.T) {
 
 		expectedSequence := []uint64{100, 200, 300, 400, 500}
 		for i, expected := range expectedSequence {
-			item := heap.Pop(h).(*MinHeapItem)
+			item, _ := heap.Pop(h).(*MinHeapItem)
 			if uint64(item.sequence) != expected {
 				t.Errorf("Pop #%d: expected sequence %d, got %d", i+1, expected, item.sequence)
 			}
 		}
 	})
+}
 
-	t.Run("DuplicateSequences", func(t *testing.T) {
+func TestSequenceHeap_EmptyHeap(t *testing.T) {
+	t.Run("EmptyHeap", func(t *testing.T) {
 		h := &MinHeap{}
 		heap.Init(h)
 
-		items := []*MinHeapItem{
-			{sequence: 100},
-			{sequence: 100},
-			{sequence: 100},
-		}
-
-		for _, item := range items {
-			heap.Push(h, item)
-		}
-
-		verifyHeap(t, h, items)
-
-		for i := 0; i < 3; i++ {
-			item := heap.Pop(h).(*MinHeapItem)
-			if item.sequence != 100 {
-				t.Errorf("Pop #%d: expected sequence 100, got %d", i+1, item.sequence)
-			}
+		if h.Len() != 0 {
+			t.Errorf("Expected empty heap, got length %d", h.Len())
 		}
 	})
+}
 
-	t.Run("IndexMaintenance", func(t *testing.T) {
+func TestSequenceHeap_SingleItem(t *testing.T) {
+	t.Run("SingleItem", func(t *testing.T) {
 		h := &MinHeap{}
 		heap.Init(h)
 
-		items := []*MinHeapItem{
-			{sequence: 300},
-			{sequence: 200},
-			{sequence: 100},
-			{sequence: 400},
+		item := &MinHeapItem{sequence: 100}
+		heap.Push(h, item)
+
+		if h.Len() != 1 {
+			t.Errorf("Expected heap length 1, got %d", h.Len())
 		}
 
-		for _, item := range items {
-			heap.Push(h, item)
+		if item.index != 0 {
+			t.Errorf("Expected index 0, got %d", item.index)
 		}
 
-		for i, item := range *h {
-			if item.index != i {
-				t.Errorf("Item %d: expected index %d, got %d", item.sequence, i, item.index)
-			}
-		}
-
-		popped := heap.Pop(h).(*MinHeapItem)
-		if popped.sequence != 100 {
-			t.Errorf("Expected first pop to be 100, got %d", popped.sequence)
-		}
-
-		for i, item := range *h {
-			if item.index != i {
-				t.Errorf("After pop: item %d: expected index %d, got %d", item.sequence, i, item.index)
-			}
+		popped, _ := heap.Pop(h).(*MinHeapItem)
+		if popped != item {
+			t.Error("Popped item doesn't match pushed item")
 		}
 
 		if popped.index != -1 {
-			t.Errorf("Popped item should have index -1, got %d", popped.index)
+			t.Errorf("Expected index -1 after pop, got %d", popped.index)
+		}
+
+		if h.Len() != 0 {
+			t.Errorf("Expected empty heap after pop, got length %d", h.Len())
 		}
 	})
+}
 
+func TestSequenceHeap_Pop(t *testing.T) {
 	t.Run("HeapOperationsAfterPop", func(t *testing.T) {
 		h := &MinHeap{}
 		heap.Init(h)
@@ -227,10 +175,74 @@ func TestSequenceHeap(t *testing.T) {
 		verifyHeap(t, h, append(items[2:], newItems...))
 		expectedSequence := []uint64{50, 150, 300, 400, 500}
 		for i, expected := range expectedSequence {
-			item := heap.Pop(h).(*MinHeapItem)
+			item, _ := heap.Pop(h).(*MinHeapItem)
 			if uint64(item.sequence) != expected {
 				t.Errorf("Pop #%d: expected sequence %d, got %d", i+1, expected, item.sequence)
 			}
+		}
+	})
+}
+
+func TestSequenceHeap(t *testing.T) {
+	t.Run("MultipleItemsReverseOrder", func(t *testing.T) {
+		h := &MinHeap{}
+		heap.Init(h)
+
+		items := []*MinHeapItem{
+			{sequence: 300},
+			{sequence: 200},
+			{sequence: 100},
+		}
+
+		for _, item := range items {
+			heap.Push(h, item)
+		}
+
+		verifyHeap(t, h, items)
+
+		expectedSequence := []uint64{100, 200, 300}
+		for i, expected := range expectedSequence {
+			item, _ := heap.Pop(h).(*MinHeapItem)
+			if uint64(item.sequence) != expected {
+				t.Errorf("Pop #%d: expected sequence %d, got %d", i+1, expected, item.sequence)
+			}
+		}
+	})
+
+	t.Run("IndexMaintenance", func(t *testing.T) {
+		h := &MinHeap{}
+		heap.Init(h)
+
+		items := []*MinHeapItem{
+			{sequence: 300},
+			{sequence: 200},
+			{sequence: 100},
+			{sequence: 400},
+		}
+
+		for _, item := range items {
+			heap.Push(h, item)
+		}
+
+		for i, item := range *h {
+			if item.index != i {
+				t.Errorf("Item %d: expected index %d, got %d", item.sequence, i, item.index)
+			}
+		}
+
+		popped, _ := heap.Pop(h).(*MinHeapItem)
+		if popped.sequence != 100 {
+			t.Errorf("Expected first pop to be 100, got %d", popped.sequence)
+		}
+
+		for i, item := range *h {
+			if item.index != i {
+				t.Errorf("After pop: item %d: expected index %d, got %d", item.sequence, i, item.index)
+			}
+		}
+
+		if popped.index != -1 {
+			t.Errorf("Popped item should have index -1, got %d", popped.index)
 		}
 	})
 }

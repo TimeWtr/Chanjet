@@ -17,14 +17,16 @@ package core
 import (
 	"context"
 
-	"github.com/TimeWtr/Chanjet"
+	chanjet "github.com/TimeWtr/Chanjet"
 )
 
-type DataCallBack func(data []byte)
-type UnregisterFunc func()
+type (
+	DataCallBack   func(data []byte)
+	UnregisterFunc func()
+)
 
 type ReadBuffer interface {
-	RegisterReadMode(readMode Chanjet.ReadMode) error
+	RegisterReadMode(readMode chanjet.ReadMode) error
 	BlockingRead(ctx context.Context) ([]byte, error)
 	RegisterCallback(cb DataCallBack) UnregisterFunc
 	BatchRead(ctx context.Context, batchSize int) [][]byte

@@ -35,11 +35,11 @@ func newWaiterManager() *WaiterManager {
 	}
 }
 
-func (w *WaiterManager) register() (int, <-chan struct{}) {
+func (w *WaiterManager) register() (id int, ch <-chan struct{}) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	id := w.currentID + 1
+	id = w.currentID + 1
 	w.currentID = id
 	notify, _ := w.pool.Get().(chan struct{})
 	w.ws[id] = notify

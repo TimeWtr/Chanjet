@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package Chanjet
+package chanjet
 
 import (
 	"testing"
@@ -59,7 +59,7 @@ func TestDefaultStrategy(t *testing.T) {
 		{"all_low", 0, 0, false},
 		{"low_count_mid_time", 50, 5 * time.Millisecond, false},
 		{"mid_count_low_time", 70, 1 * time.Millisecond, false},
-		{"zero_buffer", 0, 10 * time.Millisecond, true}, // 时间到期
+		{"zero_buffer", 0, 10 * time.Millisecond, true},
 		{"max_interval", 50, 10 * time.Millisecond, true},
 	}
 
