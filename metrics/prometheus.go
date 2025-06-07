@@ -17,7 +17,7 @@ package metrics
 import (
 	"net/http"
 
-	"github.com/TimeWtr/Chanjet"
+	chanjet "github.com/TimeWtr/Chanjet"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -188,29 +188,29 @@ func (p *Prometheus) AllocInc(delta float64) {
 	p.poolAlloc.Add(delta)
 }
 
-func (p *Prometheus) ObserveAsyncGoroutine(operation Chanjet.OperationType, counts float64) {
+func (p *Prometheus) ObserveAsyncGoroutine(operation chanjet.OperationType, counts float64) {
 	if !p.enabled {
 		return
 	}
 
-	if operation == Chanjet.MetricsIncOp {
+	if operation == chanjet.MetricsIncOp {
 		p.asyncWorkers.Add(counts)
 	} else {
 		p.asyncWorkers.Add(-counts)
 	}
 }
 
-func (p *Prometheus) SwitchWithLatency(status Chanjet.SwitchStatus, counts, millSeconds float64) {
+func (p *Prometheus) SwitchWithLatency(status chanjet.SwitchStatus, counts, millSeconds float64) {
 	if !p.enabled {
 		return
 	}
 
 	switch status {
-	case Chanjet.SwitchSuccess:
+	case chanjet.SwitchSuccess:
 		p.switchCounts.Add(counts)
 		p.switchLatency.Observe(millSeconds)
-	case Chanjet.SwitchFailure:
-	case Chanjet.SwitchSkip:
+	case chanjet.SwitchFailure:
+	case chanjet.SwitchSkip:
 		p.skipSwitchCounts.Inc()
 	}
 }

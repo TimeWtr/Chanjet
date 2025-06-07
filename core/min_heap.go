@@ -43,7 +43,7 @@ func (m MinHeap) Swap(i, j int) {
 
 func (m *MinHeap) Push(x interface{}) {
 	n := len(*m)
-	item := x.(*MinHeapItem)
+	item, _ := x.(*MinHeapItem)
 	item.index = n
 	*m = append(*m, item)
 }
@@ -89,7 +89,8 @@ func (h *WrapHeap) Pick() *MinHeapItem {
 		return nil
 	}
 
-	return heap.Pop(&h.heap).(*MinHeapItem)
+	item, _ := heap.Pop(&h.heap).(*MinHeapItem)
+	return item
 }
 
 func (h *WrapHeap) PeekFirst() *MinHeapItem {
