@@ -21,7 +21,7 @@ import (
 
 const (
 	mediumPoolTTL     = 2 * time.Minute
-	initializeBufSize = 1024
+	initializeBufSize = 512
 )
 
 // LifeCycleManager cache pool life cycle manager, used to manage small, medium and large sizes

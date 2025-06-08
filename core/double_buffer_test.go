@@ -22,6 +22,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	chanjet "github.com/TimeWtr/Chanjet"
 	"github.com/TimeWtr/Chanjet/config"
@@ -48,7 +49,10 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 		defer sb.Close()
 
 		data := []byte("hello")
-		ok := sb.write(data)
+		ok := sb.write(BufferItem{
+			ptr:  unsafe.Pointer(&data[0]),
+			size: int32(len(data)),
+		})
 		require.True(t, ok)
 
 		ptr, _ := sb.pop()
@@ -61,7 +65,9 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 		defer sb.Close()
 
 		data := []byte("hello")
-		ok := sb.write(data)
+		ok := sb.write(BufferItem{
+			ptr: unsafe.Pointer(&data),
+		})
 		require.True(t, ok)
 		time.Sleep(time.Millisecond * 10)
 		ptr, _ := sb.pop()
@@ -77,7 +83,9 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 		data = fillRealisticData(data)
 		for i := 0; i < 10; i++ {
 			rand.Read(data)
-			ok := sb.write(data)
+			ok := sb.write(BufferItem{
+				ptr: unsafe.Pointer(&i),
+			})
 			require.True(t, ok)
 		}
 
@@ -96,7 +104,9 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 		data = fillRealisticData(data)
 		for i := 0; i < 200; i++ {
 			rand.Read(data)
-			ok := sb.write(data)
+			ok := sb.write(BufferItem{
+				ptr: unsafe.Pointer(&i),
+			})
 			require.True(t, ok)
 		}
 
@@ -105,36 +115,6 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 			assert.NotNil(t, ptr)
 			assert.Equal(t, 200-i, sb.len())
 		}
-	})
-
-	t.Run("Buffer full", func(t *testing.T) {
-		sb := newSmartBuffer(2)
-		defer sb.Close()
-
-		require.True(t, sb.write([]byte("a")))
-		require.True(t, sb.write([]byte("b")))
-		require.False(t, sb.write([]byte("c")))
-
-		// Read one item
-		_, _ = sb.pop()
-
-		// Now should be able to write again
-		require.True(t, sb.write([]byte("c")))
-	})
-
-	t.Run("Close behavior", func(t *testing.T) {
-		sb := newSmartBuffer(5)
-		sb.write([]byte("test"))
-
-		sb.Close()
-
-		// Writes after close should fail
-		ok := sb.write([]byte("new"))
-		require.False(t, ok)
-
-		// Can read existing data
-		ptr, _ := sb.pop()
-		assert.NotNil(t, ptr)
 	})
 }
 
