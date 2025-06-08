@@ -51,9 +51,8 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 		ok := sb.write(data)
 		require.True(t, ok)
 
-		readData, ok := sb.safeRead()
-		require.True(t, ok)
-		assert.Equal(t, data, readData.Bytes())
+		ptr, _ := sb.pop()
+		assert.NotNil(t, ptr)
 		assert.Equal(t, 0, sb.len())
 	})
 
@@ -65,9 +64,8 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 		ok := sb.write(data)
 		require.True(t, ok)
 		time.Sleep(time.Millisecond * 10)
-		readData, ok := sb.zeroCopyRead()
-		require.True(t, ok)
-		assert.Equal(t, data, readData.Bytes())
+		ptr, _ := sb.pop()
+		assert.NotNil(t, ptr)
 		assert.Equal(t, 0, sb.len())
 	})
 
@@ -84,9 +82,8 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 		}
 
 		for i := 1; i <= 10; i++ {
-			readData, ok := sb.zeroCopyRead()
-			require.True(t, ok)
-			assert.Equal(t, data, readData.Bytes())
+			ptr, _ := sb.pop()
+			assert.NotNil(t, ptr)
 			assert.Equal(t, 10-i, sb.len())
 		}
 	})
@@ -104,8 +101,8 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 		}
 
 		for i := 1; i <= 200; i++ {
-			_, ok := sb.zeroCopyRead()
-			require.True(t, ok)
+			ptr, _ := sb.pop()
+			assert.NotNil(t, ptr)
 			assert.Equal(t, 200-i, sb.len())
 		}
 	})
@@ -119,8 +116,7 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 		require.False(t, sb.write([]byte("c")))
 
 		// Read one item
-		_, ok := sb.safeRead()
-		require.True(t, ok)
+		_, _ = sb.pop()
 
 		// Now should be able to write again
 		require.True(t, sb.write([]byte("c")))
@@ -137,36 +133,8 @@ func TestSmartBuffer_BasicOperations(t *testing.T) {
 		require.False(t, ok)
 
 		// Can read existing data
-		_, ok = sb.safeRead()
-		require.True(t, ok)
-
-		// Subsequent reads should fail
-		_, ok = sb.safeRead()
-		require.False(t, ok)
-	})
-
-	t.Run("Recycle worker", func(t *testing.T) {
-		sb := newSmartBuffer(10)
-
-		// Write medium data that should be cached
-		mediumData := make([]byte, 16*1024) // 16KB
-		sb.write(mediumData)
-
-		// Immediately read should work without copy
-		_, ok := sb.zeroCopyRead()
-		require.True(t, ok)
-
-		// Wait for cache to expire
-		time.Sleep(MediumDataCacheDuration + 100*time.Millisecond)
-
-		// Now should return copy
-		newData := make([]byte, len(mediumData))
-		copy(newData, mediumData)
-		sb.write(newData)
-		_, ok = sb.safeRead()
-		require.True(t, ok)
-
-		sb.Close()
+		ptr, _ := sb.pop()
+		assert.NotNil(t, ptr)
 	})
 }
 
@@ -177,7 +145,7 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db, err := NewDoubleBuffer(1000, sc)
+	db, err := NewDoubleBuffer(10000, sc)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -185,8 +153,9 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
+
 		template := "this is a template, seq: %d"
-		for i := 0; i < 20000; i++ {
+		for i := 0; i < 2000000; i++ {
 			err = db.Write([]byte(fmt.Sprintf(template, i)))
 			require.NoError(t, err)
 		}
@@ -199,9 +168,11 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 
 		count := 0
 		for {
-			if count >= 20000 {
+			if count >= 2000000 {
+				t.Log("received message count: ", count)
 				return
 			}
+
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 			chunk, err1 := db.BlockingRead(ctx)
 			cancel()

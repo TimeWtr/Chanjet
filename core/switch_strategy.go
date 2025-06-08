@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package chanjet
+package core
 
-import "time"
+import (
+	"time"
+
+	chanjet "github.com/TimeWtr/Chanjet"
+)
 
 const MinBufferSize = 1
 
 type SwitchStrategy interface {
-	NeedSwitch(currentCount, bufferSize int32, elapsed, interval time.Duration) bool
+	needSwitch(currentCount, bufferSize int32, elapsed, interval time.Duration) bool
 }
 
 type DefaultStrategy struct{}
@@ -28,7 +32,7 @@ func NewDefaultStrategy() SwitchStrategy {
 	return &DefaultStrategy{}
 }
 
-func (d *DefaultStrategy) NeedSwitch(currentCount, bufferSize int32, elapsed, interval time.Duration) bool {
+func (d *DefaultStrategy) needSwitch(currentCount, bufferSize int32, elapsed, interval time.Duration) bool {
 	if bufferSize < MinBufferSize {
 		bufferSize = MinBufferSize
 	}
@@ -48,9 +52,9 @@ func (d *DefaultStrategy) NeedSwitch(currentCount, bufferSize int32, elapsed, in
 	countFactor := float64(currentCount) / float64(bufferSize)
 	// Calculate switch time factor (0-1)
 	switchFactor := float64(elapsedNs) / float64(intervalNs)
-	combined := TimeWeight*switchFactor + SizeWeight*countFactor
+	combined := chanjet.TimeWeight*switchFactor + chanjet.SizeWeight*countFactor
 
-	return combined >= FullCapacity
+	return combined >= chanjet.FullCapacity
 }
 
 type SizeOnlyStrategy struct{}
@@ -59,7 +63,7 @@ func NewSizeOnlyStrategy() SwitchStrategy {
 	return &SizeOnlyStrategy{}
 }
 
-func (s *SizeOnlyStrategy) NeedSwitch(currentCount, bufferSize int32, _, _ time.Duration) bool {
+func (s *SizeOnlyStrategy) needSwitch(currentCount, bufferSize int32, _, _ time.Duration) bool {
 	return currentCount >= bufferSize
 }
 
@@ -69,6 +73,6 @@ func NewTimeWindowOnlyStrategy() SwitchStrategy {
 	return &TimeWindowOnlyStrategy{}
 }
 
-func (s *TimeWindowOnlyStrategy) NeedSwitch(_, _ int32, elapsed, interval time.Duration) bool {
+func (s *TimeWindowOnlyStrategy) needSwitch(_, _ int32, elapsed, interval time.Duration) bool {
 	return elapsed >= interval
 }
