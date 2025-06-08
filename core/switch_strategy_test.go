@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package chanjet
+package core
 
 import (
 	"testing"
@@ -67,9 +67,9 @@ func TestDefaultStrategy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := strategy.NeedSwitch(tt.currentCount, bufferSize, tt.elapsed, interval)
+			got := strategy.needSwitch(tt.currentCount, bufferSize, tt.elapsed, interval)
 			if got != tt.want {
-				t.Errorf("%s: NeedSwitch(%d, %d, %v, %v) = %v, want %v",
+				t.Errorf("%s: needSwitch(%d, %d, %v, %v) = %v, want %v",
 					tt.name, tt.currentCount, bufferSize, tt.elapsed, interval, got, tt.want)
 			}
 		})
@@ -77,15 +77,15 @@ func TestDefaultStrategy(t *testing.T) {
 
 	t.Run("combined_factor_precision", func(t *testing.T) {
 		// 0.84 * 0.6 + 1.0 * 0.4 = 0.504 + 0.4 = 0.904 > 0.85 (should be true)
-		got := strategy.NeedSwitch(84, bufferSize, 10*time.Millisecond, interval)
+		got := strategy.needSwitch(84, bufferSize, 10*time.Millisecond, interval)
 		if !got {
-			t.Error("NeedSwitch(84, 100, 10ms) should be true")
+			t.Error("needSwitch(84, 100, 10ms) should be true")
 		}
 
 		// 0.84 * 0.6 + 0.0 * 0.4 = 0.504 < 0.85 (should be false)
-		got = strategy.NeedSwitch(84, bufferSize, 0, interval)
+		got = strategy.needSwitch(84, bufferSize, 0, interval)
 		if got {
-			t.Error("NeedSwitch(84, 100, 0) should be false")
+			t.Error("needSwitch(84, 100, 0) should be false")
 		}
 	})
 }
@@ -108,12 +108,12 @@ func TestSizeOnlyStrategy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := strategy.NeedSwitch(tt.currentCount, bufferSize, 1*time.Hour, 1*time.Second)
+			got := strategy.needSwitch(tt.currentCount, bufferSize, 1*time.Hour, 1*time.Second)
 			if got != tt.want {
-				t.Errorf("NeedSwitch(%d) = %v, want %v", tt.currentCount, got, tt.want)
+				t.Errorf("needSwitch(%d) = %v, want %v", tt.currentCount, got, tt.want)
 			}
 
-			gotZeroTime := strategy.NeedSwitch(tt.currentCount, bufferSize, 0, 0)
+			gotZeroTime := strategy.needSwitch(tt.currentCount, bufferSize, 0, 0)
 			if got != gotZeroTime {
 				t.Errorf("Time parameters affected result: %v vs %v", got, gotZeroTime)
 			}
@@ -139,12 +139,12 @@ func TestTimeWindowOnlyStrategy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := strategy.NeedSwitch(100, bufferSize, tt.elapsed, interval)
+			got := strategy.needSwitch(100, bufferSize, tt.elapsed, interval)
 			if got != tt.want {
-				t.Errorf("NeedSwitch(%v) = %v, want %v", tt.elapsed, got, tt.want)
+				t.Errorf("needSwitch(%v) = %v, want %v", tt.elapsed, got, tt.want)
 			}
 
-			gotZeroCount := strategy.NeedSwitch(0, bufferSize, tt.elapsed, interval)
+			gotZeroCount := strategy.needSwitch(0, bufferSize, tt.elapsed, interval)
 			if got != gotZeroCount {
 				t.Errorf("Count parameters affected result: %v vs %v", got, gotZeroCount)
 			}
@@ -156,13 +156,13 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("zero_time_interval", func(t *testing.T) {
 		strategy := &DefaultStrategy{}
 
-		got := strategy.NeedSwitch(50, bufferSize, 1, 0)
+		got := strategy.needSwitch(50, bufferSize, 1, 0)
 		if !got {
 			t.Error("Should switch when interval is 0")
 		}
 
 		sTime := &TimeWindowOnlyStrategy{}
-		got = sTime.NeedSwitch(50, bufferSize, 1, 0)
+		got = sTime.needSwitch(50, bufferSize, 1, 0)
 		if !got {
 			t.Error("TimeWindow should switch when interval is 0")
 		}
@@ -185,9 +185,9 @@ func TestEdgeCases(t *testing.T) {
 		}
 
 		for i, tt := range tests {
-			got := strategy.NeedSwitch(tt.count, tt.size, tt.elapsed, tt.interval)
+			got := strategy.needSwitch(tt.count, tt.size, tt.elapsed, tt.interval)
 			if got != tt.want {
-				t.Errorf("Test %d: NeedSwitch(%d,%d,%v,%v) = %v, want %v",
+				t.Errorf("Test %d: needSwitch(%d,%d,%v,%v) = %v, want %v",
 					i+1, tt.count, tt.size, tt.elapsed, tt.interval, got, tt.want)
 			}
 		}

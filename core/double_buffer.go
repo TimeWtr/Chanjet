@@ -58,13 +58,6 @@ func WithMetrics(collector chanjet.CollectorType) Options {
 	}
 }
 
-//// WithSwitchCondition Set the channel switching conditions
-//func WithSwitchCondition(config config.SwitchConfig) Options {
-//	return func(buffer *DoubleBuffer) error {
-//		return buffer.sc.UpdateConfig(config)
-//	}
-//}
-
 type BufferItem struct {
 	ptr  unsafe.Pointer
 	size int32
@@ -82,16 +75,16 @@ type SmartBuffer struct {
 }
 
 func newSmartBuffer(capacity int32) *SmartBuffer {
+	pm := pools.NewLifeCycleManager()
 	s := &SmartBuffer{
 		buf:      make([]BufferItem, capacity),
 		head:     -1,
 		tail:     -1,
 		capacity: capacity,
 		status:   chanjet.WritingStatus,
-		pm:       pools.NewLifeCycleManager(),
+		pm:       pm,
 		sem:      make(chan struct{}),
 	}
-
 	atomic.StoreInt32(&s.count, 0)
 
 	return s
@@ -99,11 +92,6 @@ func newSmartBuffer(capacity int32) *SmartBuffer {
 
 func (s *SmartBuffer) len() int {
 	return int(atomic.LoadInt32(&s.count))
-}
-
-func (s *SmartBuffer) createByteSliceFromPointer(ptr unsafe.Pointer, size int32) []byte {
-	bytePtr := (*byte)(ptr)
-	return unsafe.Slice(bytePtr, int(size))
 }
 
 func (s *SmartBuffer) write(p []byte) bool {
@@ -129,83 +117,6 @@ func (s *SmartBuffer) write(p []byte) bool {
 	}
 
 	return s.push(bufferItem)
-}
-
-// zeroCopyRead is a non-safe API. When using this API, you must ensure that the data is not modified
-// after Write. Otherwise, the zero-copy data will be wrong.
-func (s *SmartBuffer) zeroCopyRead() (DataChunk, bool) {
-	ptr, size := s.pop()
-	if ptr == nil {
-		return DataChunk{}, false
-	}
-
-	res := s.createByteSliceFromPointer(ptr, size)
-
-	if size > LargeDataThreshold {
-		ptrVal := uintptr(ptr)
-		s.pm.BigDataPool.Release(ptrVal)
-	}
-
-	return DataChunk{
-		data: res,
-		free: func() {
-			s.recycle(ptr, size)
-		},
-	}, true
-}
-
-// safeRead Read data, secure API, return default copy.
-func (s *SmartBuffer) safeRead() (DataChunk, bool) {
-	ptr, size := s.pop()
-	if size == 0 {
-		return DataChunk{}, false
-	}
-
-	res := s.createByteSliceFromPointer(ptr, size)
-	switch {
-	case size < SmallDataThreshold:
-		buf, _ := s.pm.SmallPool.Get().([]byte)
-		buf = buf[:size]
-		copy(buf, res)
-		return DataChunk{
-			data: buf,
-		}, true
-	case size > LargeDataThreshold:
-		// Big data returns a copy (safe default)
-		return DataChunk{
-			data: res,
-			free: func() {
-				s.recycle(ptr, size)
-			},
-		}, true
-	default:
-		if s.pm.MediumPool.IsValid(uintptr(ptr)) {
-			// Data within the validity period (zero copy return)
-			return DataChunk{
-				data: res,
-				free: func() {
-					s.recycle(ptr, size)
-				},
-			}, true
-		}
-
-		// Cache invalidation, return a copy (safe default)
-		data := make([]byte, size)
-		copy(data, res)
-		return DataChunk{
-			data: data,
-		}, true
-	}
-}
-
-// Release the data read by the zero-copy API
-func (s *SmartBuffer) Release(data []byte) {
-	if len(data) < LargeDataThreshold {
-		return
-	}
-
-	ptrVal := uintptr(unsafe.Pointer(&data[0]))
-	s.pm.BigDataPool.Release(ptrVal)
 }
 
 func (s *SmartBuffer) calcPos(index int32) int32 {
@@ -289,47 +200,6 @@ func (s *SmartBuffer) pop() (ptr unsafe.Pointer, size int32) {
 	}
 }
 
-//func (s *SmartBuffer) recycleWorker() {
-//	defer s.wg.Done()
-//
-//	ticker := time.NewTicker(time.Second)
-//	defer ticker.Stop()
-//
-//	for {
-//		if atomic.LoadInt32(&s.status) == Chanjet.ClosedStatus {
-//			return
-//		}
-//
-//		select {
-//		case <-s.sem:
-//			return
-//		case <-ticker.C:
-//			if atomic.LoadInt32(&s.status) == Chanjet.ClosedStatus {
-//				return
-//			}
-//			s.pm.Cleanup()
-//		}
-//	}
-//}
-
-// recycle releases resources, three different sizes.
-// 1. SmallData: Get the []byte corresponding to ptr, reset and put it back into the buffer pool
-// 2. MediumData: Delete the mapping relationship between ptr and time
-// 3. LargeData: -1 the reference count of ptr in the pool
-func (s *SmartBuffer) recycle(ptr unsafe.Pointer, size int32) {
-	ptrVal := uintptr(ptr)
-	switch {
-	case size < SmallDataThreshold:
-		data := *(*[]byte)(ptr)
-		data = data[:0]
-		s.pm.SmallPool.Put(data)
-	case size > LargeDataThreshold:
-		s.pm.BigDataPool.Release(ptrVal)
-	default:
-		s.pm.MediumPool.Release(ptrVal)
-	}
-}
-
 func (s *SmartBuffer) Close() {
 	if !atomic.CompareAndSwapInt32(&s.status, chanjet.WritingStatus, chanjet.ClosedStatus) {
 		return
@@ -398,14 +268,19 @@ type DoubleBuffer struct {
 	scd      *config.SwitchCondition
 	scNotify <-chan struct{}
 	// The strategy switching channels.
-	sw chanjet.SwitchStrategy
+	sw SwitchStrategy
 	// The read mode, include zero copy read and safe read.
 	readMode *chanjet.ReadMode
 	// Waiters manager
 	wm *WaiterManager
+	// Life cycle manager
+	pm *pools.LifeCycleManager
 }
 
 func NewDoubleBuffer(size int32, sc *config.SwitchCondition, opts ...Options) (*DoubleBuffer, error) {
+	pm := pools.NewLifeCycleManager()
+	pm.Preload(size)
+
 	d := &DoubleBuffer{
 		active:          newSmartBuffer(size),
 		passive:         newSmartBuffer(size),
@@ -417,11 +292,12 @@ func NewDoubleBuffer(size int32, sc *config.SwitchCondition, opts ...Options) (*
 		lastSwitch:      time.Now().UnixMilli(),
 		pendingHeap:     NewWrapHeap(),
 		currentSequence: 1,
-		sw:              chanjet.NewDefaultStrategy(),
+		sw:              NewDefaultStrategy(),
 		swapSignal:      make(chan struct{}, 1),
 		mc:              metrics.NewBatchCollector(metrics.NewPrometheus()),
 		wg:              sync.WaitGroup{},
 		wm:              newWaiterManager(),
+		pm:              pm,
 	}
 
 	for _, opt := range opts {
@@ -439,8 +315,10 @@ func NewDoubleBuffer(size int32, sc *config.SwitchCondition, opts ...Options) (*
 	d.active, _ = d.pool.Get().(*SmartBuffer)
 	d.passive, _ = d.pool.Get().(*SmartBuffer)
 
-	d.wg.Add(1)
+	const workers = 2
+	d.wg.Add(workers)
 	go d.swapMonitor()
+	go d.asyncRecycleWorker()
 
 	return d, nil
 }
@@ -508,7 +386,7 @@ func (d *DoubleBuffer) needSwitch() bool {
 	default:
 	}
 
-	return d.sw.NeedSwitch(currentCount, d.size, elapsed, d.sc.TimeThreshold)
+	return d.sw.needSwitch(currentCount, d.size, elapsed, d.sc.TimeThreshold)
 }
 
 // switchChannel Perform channel switching
@@ -610,6 +488,121 @@ func (d *DoubleBuffer) RegisterReadMode(readMode chanjet.ReadMode) error {
 	return nil
 }
 
+func (d *DoubleBuffer) createByteSliceFromPointer(ptr unsafe.Pointer, size int32) []byte {
+	bytePtr := (*byte)(ptr)
+	return unsafe.Slice(bytePtr, int(size))
+}
+
+// recycle releases resources, three different sizes.
+// 1. SmallData: Get the []byte corresponding to ptr, reset and put it back into the buffer pool
+// 2. MediumData: Delete the mapping relationship between ptr and time
+// 3. LargeData: -1 the reference count of ptr in the pool
+func (d *DoubleBuffer) recycle(ptr unsafe.Pointer, size int32) {
+	if ptr == nil || size <= 0 {
+		return
+	}
+
+	switch {
+	case size < SmallDataThreshold:
+	case size > LargeDataThreshold:
+		ptrVal := uintptr(ptr)
+		d.pm.BigDataPool.Release(ptrVal)
+	default:
+		ptrVal := uintptr(ptr)
+		d.pm.MediumPool.Release(ptrVal)
+	}
+}
+
+func (d *DoubleBuffer) asyncRecycleWorker() {
+	defer d.wg.Done()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.stop:
+			return
+		case <-ticker.C:
+			d.pm.Cleanup()
+		}
+	}
+}
+
+// safeRead Read data, secure API, return default copy.
+func (d *DoubleBuffer) safeRead() (DataChunk, bool) {
+	ptr, size := d.currentBuffer.pop()
+	if size == 0 {
+		return DataChunk{}, false
+	}
+
+	res := d.createByteSliceFromPointer(ptr, size)
+	switch {
+	case size < SmallDataThreshold:
+		buf, _ := d.pm.SmallPool.Get().([]byte)
+		buf = buf[:size]
+		copy(buf, res)
+		return DataChunk{
+			data: buf,
+			free: func() {
+				buf = buf[:0]
+				d.pm.SmallPool.Put(buf)
+			},
+		}, true
+	case size > LargeDataThreshold:
+		// Big data returns a copy (safe default)
+		return DataChunk{
+			data: res,
+			free: func() {
+				d.recycle(ptr, size)
+			},
+		}, true
+	default:
+		if d.pm.MediumPool.IsValid(uintptr(ptr)) {
+			// Data within the validity period (zero copy return)
+			return DataChunk{
+				data: res,
+				free: func() {
+					d.recycle(ptr, size)
+				},
+			}, true
+		}
+
+		// Cache invalidation, return a copy (safe default)
+		data := make([]byte, size)
+		copy(data, res)
+		return DataChunk{
+			data: data,
+			free: func() {
+				d.recycle(ptr, size)
+			},
+		}, true
+	}
+}
+
+// zeroCopyRead is a non-safe API. When using this API, you must ensure that the data is not modified
+// after Write. Otherwise, the zero-copy data will be wrong.
+func (d *DoubleBuffer) zeroCopyRead() (DataChunk, bool) {
+	ptr, size := d.currentBuffer.pop()
+	if ptr == nil {
+		return DataChunk{}, false
+	}
+
+	res := d.createByteSliceFromPointer(ptr, size)
+
+	if size > LargeDataThreshold {
+		ptrVal := uintptr(ptr)
+		d.pm.BigDataPool.Release(ptrVal)
+	}
+
+	return DataChunk{
+		data: res,
+		free: func() {
+			d.recycle(ptr, size)
+		},
+	}, true
+}
+
 // BlockingRead Blocking reading requires passing in a Context with timeout control.
 // If there is data, read the data immediately and return. If there is no data, wait
 // for new data in a blocking manner until the context times out or the channel is closed.
@@ -647,12 +640,12 @@ func (d *DoubleBuffer) tryRead() (DataChunk, error) {
 	readMode := *(*chanjet.ReadMode)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.readMode))))
 	switch readMode {
 	case chanjet.SafeRead:
-		res, ok := d.currentBuffer.safeRead()
+		res, ok := d.safeRead()
 		if ok {
 			return res, nil
 		}
 	case chanjet.ZeroCopyRead:
-		res, ok := d.currentBuffer.zeroCopyRead()
+		res, ok := d.zeroCopyRead()
 		if ok {
 			return res, nil
 		}

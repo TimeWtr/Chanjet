@@ -57,6 +57,14 @@ func NewLifeCycleManager() *LifeCycleManager {
 	}
 }
 
+func (l *LifeCycleManager) Preload(capacity int32) {
+	const preLoadPercent = 0.3
+	preloadSize := int(float64(capacity) * preLoadPercent)
+	for i := 0; i < preloadSize; i++ {
+		l.SmallPool.Put(l.SmallPool.Get())
+	}
+}
+
 func (l *LifeCycleManager) Cleanup() {
 	l.MediumPool.cleanup()
 	l.BigDataPool.cleanup()
@@ -92,6 +100,7 @@ func (m *MediumPool) IsValid(ptr uintptr) bool {
 func (m *MediumPool) Release(ptr uintptr) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	delete(m.cache, ptr)
 }
 
@@ -103,9 +112,15 @@ func (m *MediumPool) cleanup() {
 		return
 	}
 
+	const maxCleanCounts = 100
+	count := 0
 	for ptr, t := range m.cache {
 		if time.Since(t) > time.Minute {
 			delete(m.cache, ptr)
+			count++
+			if count > maxCleanCounts {
+				return
+			}
 		}
 	}
 }
@@ -123,6 +138,8 @@ func (b *BigDataPool) cleanup() {
 		return
 	}
 
+	const maxCleanCounts = 100
+	count := 0
 	for ptr, bd := range b.pool {
 		if bd.ref != 0 {
 			continue
@@ -130,6 +147,10 @@ func (b *BigDataPool) cleanup() {
 
 		delete(b.pool, ptr)
 		bd.data = nil
+		count++
+		if count > maxCleanCounts {
+			return
+		}
 	}
 }
 
