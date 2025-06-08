@@ -64,25 +64,22 @@ type BufferItem struct {
 }
 
 type SmartBuffer struct {
-	buf      []BufferItem            // stores the header information corresponding to []byte
-	head     int32                   // write index
-	tail     int32                   // read index
-	count    int32                   // the number of data currently written
-	capacity int32                   // smart buffer capacity setting
-	status   int32                   // smart buffer status
-	pm       *pools.LifeCycleManager // buffer pool lifecycle manager
-	sem      chan struct{}           // closed signal
+	buf      []BufferItem  // stores the header information corresponding to []byte
+	head     int32         // write index
+	tail     int32         // read index
+	count    int32         // the number of data currently written
+	capacity int32         // smart buffer capacity setting
+	status   int32         // smart buffer status
+	sem      chan struct{} // closed signal
 }
 
 func newSmartBuffer(capacity int32) *SmartBuffer {
-	pm := pools.NewLifeCycleManager()
 	s := &SmartBuffer{
 		buf:      make([]BufferItem, capacity),
 		head:     -1,
 		tail:     -1,
 		capacity: capacity,
 		status:   chanjet.WritingStatus,
-		pm:       pm,
 		sem:      make(chan struct{}),
 	}
 	atomic.StoreInt32(&s.count, 0)
@@ -94,26 +91,9 @@ func (s *SmartBuffer) len() int {
 	return int(atomic.LoadInt32(&s.count))
 }
 
-func (s *SmartBuffer) write(p []byte) bool {
+func (s *SmartBuffer) write(bufferItem BufferItem) bool {
 	if s.status == chanjet.ClosedStatus {
 		return false
-	}
-
-	header := (*reflect.SliceHeader)(unsafe.Pointer(&p))
-	bufferItem := BufferItem{
-		ptr:  unsafe.Pointer(header.Data),
-		size: int32(header.Len),
-	}
-	switch {
-	case bufferItem.size < SmallDataThreshold:
-		buf, _ := s.pm.SmallPool.Get().([]byte)
-		buf = buf[:bufferItem.size]
-		copy(buf, p)
-		bufferItem.ptr = unsafe.Pointer(&buf[0])
-	case bufferItem.size < LargeDataThreshold:
-		s.pm.BigDataPool.Put(uintptr(bufferItem.ptr), p)
-	default:
-		s.pm.MediumPool.Put(uintptr(bufferItem.ptr), time.Now())
 	}
 
 	return s.push(bufferItem)
@@ -343,10 +323,30 @@ func (d *DoubleBuffer) Write(p []byte) error {
 		}
 	}
 
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&p))
+	bufferItem := BufferItem{
+		ptr:  unsafe.Pointer(header.Data),
+		size: int32(header.Len),
+	}
+	switch {
+	case bufferItem.size < SmallDataThreshold:
+		buf, _ := d.pm.SmallPool.Get().([]byte)
+		if int32(cap(buf)) < bufferItem.size {
+			buf = make([]byte, 0, bufferItem.size)
+		}
+		buf = buf[:bufferItem.size]
+		copy(buf, p)
+		bufferItem.ptr = unsafe.Pointer(&buf[0])
+	case bufferItem.size < LargeDataThreshold:
+		d.pm.BigDataPool.Put(uintptr(bufferItem.ptr), p)
+	default:
+		d.pm.MediumPool.Put(uintptr(bufferItem.ptr), time.Now())
+	}
+
 	// Try to write to buffer
 	for {
 		d.channelLock.RLock()
-		if d.active.write(p) {
+		if d.active.write(bufferItem) {
 			d.channelLock.RUnlock()
 			atomic.AddInt32(&d.count, 1)
 			return nil
