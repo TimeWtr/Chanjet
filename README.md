@@ -1,5 +1,7 @@
 # Chanjet
 <div align="center">
+<img src="./assets/images/logo.png" alt="logo">
+
 <img src="https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white" alt="Go Version">
 <img src="https://img.shields.io/badge/license-Apache2.0-blue" alt="License">
 <img src="https://img.shields.io/badge/performance-optimized-brightgreen" alt="Performance">
