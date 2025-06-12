@@ -12,20 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package core
+package component
 
-type DataChunk struct {
-	data []byte // data value
-	free func() // release data method
+import (
+	"container/list"
+	"time"
+)
+
+type EvictContext struct {
+	QueueSize     int           // current queue size
+	Queue         *list.List    // all items in queue
+	CurrentMemory uint64        // current used memory
+	CPUUsage      float32       // current cpu usage
+	LatencyP99    time.Duration // p99 latency
 }
 
-func (d *DataChunk) Bytes() []byte {
-	return d.data
-}
-
-func (d *DataChunk) Release() {
-	if d.free != nil {
-		d.free()
-		d.free = nil
-	}
+type QueueItem struct {
+	ID       int64
+	Buf      *SmartBuffer
+	PushTime int64
 }

@@ -68,7 +68,7 @@ func (w *WaiterManager) unregister(id int) {
 // completed/no notification waiting for the notification party to end the notification,
 func (w *WaiterManager) notify(dataSize int) {
 	const (
-		MaxWaitersPerBatch = 32
+		MaxWaitersPerBatch = 64
 		MaxTotalWaiters    = 1024
 	)
 	w.mu.Lock()

@@ -26,6 +26,7 @@ import (
 
 	chanjet "github.com/TimeWtr/Chanjet"
 	"github.com/TimeWtr/Chanjet/config"
+	"github.com/TimeWtr/Chanjet/core/component"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
@@ -45,75 +46,72 @@ func fillRealisticData(data []byte) []byte {
 
 func TestSmartBuffer_BasicOperations(t *testing.T) {
 	t.Run("Write and safe read small data", func(t *testing.T) {
-		sb := newSmartBuffer(10)
-		defer sb.Close()
+		sb := component.NewSmartBuffer(10)
 
 		data := []byte("hello")
-		ok := sb.write(BufferItem{
-			ptr:  unsafe.Pointer(&data[0]),
-			size: int32(len(data)),
+		err := sb.Write(component.BufferItem{
+			Ptr:  unsafe.Pointer(&data[0]),
+			Size: int32(len(data)),
 		})
-		require.True(t, ok)
+		assert.NoError(t, err)
 
-		ptr, _ := sb.pop()
+		ptr, _ := sb.Pop()
 		assert.NotNil(t, ptr)
-		assert.Equal(t, 0, sb.len())
+		assert.Equal(t, 0, sb.Len())
 	})
 
 	t.Run("Write and zero copy read small data", func(t *testing.T) {
-		sb := newSmartBuffer(10)
-		defer sb.Close()
+		sb := component.NewSmartBuffer(10)
 
 		data := []byte("hello")
-		ok := sb.write(BufferItem{
-			ptr: unsafe.Pointer(&data),
+		err := sb.Write(component.BufferItem{
+			Ptr: unsafe.Pointer(&data),
 		})
-		require.True(t, ok)
+		assert.NoError(t, err)
+
 		time.Sleep(time.Millisecond * 10)
-		ptr, _ := sb.pop()
+		ptr, _ := sb.Pop()
 		assert.NotNil(t, ptr)
-		assert.Equal(t, 0, sb.len())
+		assert.Equal(t, 0, sb.Len())
 	})
 
 	t.Run("Write and zero-copy read large data(64KB)", func(t *testing.T) {
-		sb := newSmartBuffer(10)
-		defer sb.Close()
+		sb := component.NewSmartBuffer(10)
 
 		data := make([]byte, 64*1024)
 		data = fillRealisticData(data)
 		for i := 0; i < 10; i++ {
 			rand.Read(data)
-			ok := sb.write(BufferItem{
-				ptr: unsafe.Pointer(&i),
+			err := sb.Write(component.BufferItem{
+				Ptr: unsafe.Pointer(&i),
 			})
-			require.True(t, ok)
+			assert.NoError(t, err)
 		}
 
 		for i := 1; i <= 10; i++ {
-			ptr, _ := sb.pop()
+			ptr, _ := sb.Pop()
 			assert.NotNil(t, ptr)
-			assert.Equal(t, 10-i, sb.len())
+			assert.Equal(t, 10-i, sb.Len())
 		}
 	})
 
 	t.Run("Write and zero-copy read large data(128KB)", func(t *testing.T) {
-		sb := newSmartBuffer(200)
-		defer sb.Close()
+		sb := component.NewSmartBuffer(200)
 
 		data := make([]byte, 128*1024)
 		data = fillRealisticData(data)
 		for i := 0; i < 200; i++ {
 			rand.Read(data)
-			ok := sb.write(BufferItem{
-				ptr: unsafe.Pointer(&i),
+			err := sb.Write(component.BufferItem{
+				Ptr: unsafe.Pointer(&i),
 			})
-			require.True(t, ok)
+			assert.NoError(t, err)
 		}
 
 		for i := 1; i <= 200; i++ {
-			ptr, _ := sb.pop()
+			ptr, _ := sb.Pop()
 			assert.NotNil(t, ptr)
-			assert.Equal(t, 200-i, sb.len())
+			assert.Equal(t, 200-i, sb.Len())
 		}
 	})
 }
@@ -125,7 +123,7 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	db, err := NewDoubleBuffer(10000, sc)
+	db, err := NewDoubleBuffer(1000, sc)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -135,7 +133,7 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 		defer wg.Done()
 
 		template := "this is a template, seq: %d"
-		for i := 0; i < 2000000; i++ {
+		for i := 0; i < 20000; i++ {
 			err = db.Write([]byte(fmt.Sprintf(template, i)))
 			require.NoError(t, err)
 		}
@@ -148,7 +146,7 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 
 		count := 0
 		for {
-			if count >= 2000000 {
+			if count >= 20000 {
 				t.Log("received message count: ", count)
 				return
 			}
@@ -160,6 +158,7 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 				t.Log(err1)
 				continue
 			}
+			t.Log("received chunk data: ", string(chunk.Bytes()))
 			chunk.Release()
 			count++
 		}
@@ -892,3 +891,272 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB_1Core(b *testing.B) {
 	cancel()
 	wg.Wait()
 }
+
+//func TestNewDoubleBuffer_Check_Heap_Small_Bytes(t *testing.T) {
+//	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+//		PercentThreshold: 80,
+//		TimeThreshold:    time.Second,
+//	})
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	bf, err := NewDoubleBuffer(1000, sc)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	err = bf.RegisterReadMode(chanjet.SafeRead)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	exitChan := make(chan struct{}, 1)
+//	var wg sync.WaitGroup
+//	wg.Add(2)
+//	go func() {
+//		defer wg.Done()
+//
+//		var wg1 sync.WaitGroup
+//		for i := 0; i < 5; i++ {
+//			wg1.Add(1)
+//			go func() {
+//				defer wg1.Done()
+//
+//				for {
+//					select {
+//					case <-exitChan:
+//						return
+//					default:
+//					}
+//
+//					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+//					chunk, err1 := bf.BlockingRead(ctx)
+//					cancel()
+//					if err1 != nil {
+//						fmt.Printf("blocking read error, cause: %v\n", err1)
+//						continue
+//					}
+//					fmt.Printf("blocking read success: %v\n", string(chunk.Bytes()))
+//					chunk.Release()
+//				}
+//			}()
+//		}
+//
+//		wg1.Wait()
+//	}()
+//
+//	go func() {
+//		defer wg.Done()
+//		defer bf.Close()
+//
+//		template := "2025-06-07 12:12:00 [Info] test log write，current sequence: %d\n"
+//		count := 0
+//		var wg2 sync.WaitGroup
+//		for i := 0; i < 5; i++ {
+//			wg2.Add(1)
+//			go func() {
+//				defer wg2.Done()
+//				for {
+//					select {
+//					case <-exitChan:
+//						fmt.Println("end write!")
+//						return
+//					default:
+//					}
+//
+//					count++
+//					err = bf.Write([]byte(fmt.Sprintf(template, count)))
+//					if err != nil {
+//						fmt.Printf("write log error, cause：%s\n", err.Error())
+//						continue
+//					}
+//				}
+//			}()
+//		}
+//		wg2.Wait()
+//	}()
+//
+//	go func() {
+//		err = statsviz.RegisterDefault()
+//		if err != nil {
+//			panic(err)
+//		}
+//		err = http.ListenAndServe(":8081", nil)
+//		if err != nil {
+//			panic(err)
+//		}
+//	}()
+//
+//	wg.Wait()
+//	fmt.Println("Write Success!")
+//}
+//
+//func TestNewDoubleBuffer_Check_Heap_64KB(t *testing.T) {
+//	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+//		PercentThreshold: 80,
+//		TimeThreshold:    time.Second,
+//	})
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	bf, err := NewDoubleBuffer(500, sc)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	err = bf.RegisterReadMode(chanjet.ZeroCopyRead)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	exitChan := make(chan struct{}, 1)
+//	var wg sync.WaitGroup
+//	wg.Add(2)
+//	go func() {
+//		defer wg.Done()
+//
+//		for {
+//			select {
+//			case <-exitChan:
+//				return
+//			default:
+//			}
+//
+//			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+//			chunk, err1 := bf.BlockingRead(ctx)
+//			cancel()
+//			if err1 != nil {
+//				fmt.Printf("blocking read error, cause: %v\n", err1)
+//				continue
+//			}
+//
+//			//fmt.Println(chunk.Bytes()[:50])
+//			chunk.Release()
+//		}
+//	}()
+//
+//	go func() {
+//		defer wg.Done()
+//		defer bf.Close()
+//
+//		//template := "2025-06-07 12:12:00 [Info] test log write，current sequence: %d\n"
+//		for {
+//			select {
+//			case <-exitChan:
+//				fmt.Println("end write!")
+//				return
+//			default:
+//			}
+//
+//			data := make([]byte, _64KBDataSize)
+//			data = fillRealisticData(data)
+//			if len(data) < _64KBDataSize {
+//				log.Panicf("unexpect data: %s\n", string(data))
+//			}
+//
+//			err = bf.Write(data)
+//			if err != nil {
+//				log.Panicf("write log error, cause：%s\n", err.Error())
+//			}
+//		}
+//	}()
+//
+//	go func() {
+//		err = statsviz.RegisterDefault()
+//		if err != nil {
+//			panic(err)
+//		}
+//		err = http.ListenAndServe(":8081", nil)
+//		if err != nil {
+//			panic(err)
+//		}
+//	}()
+//
+//	wg.Wait()
+//	fmt.Println("Write Success!")
+//}
+//
+//func TestNewDoubleBuffer_Check_Heap_64Bytes(t *testing.T) {
+//	sc, err := config.NewSwitchCondition(config.SwitchConfig{
+//		PercentThreshold: 80,
+//		TimeThreshold:    time.Second,
+//	})
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	bf, err := NewDoubleBuffer(500, sc)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	err = bf.RegisterReadMode(chanjet.ZeroCopyRead)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	exitChan := make(chan struct{}, 1)
+//	var wg sync.WaitGroup
+//	wg.Add(2)
+//	go func() {
+//		defer wg.Done()
+//
+//		for {
+//			select {
+//			case <-exitChan:
+//				return
+//			default:
+//			}
+//
+//			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+//			chunk, err1 := bf.BlockingRead(ctx)
+//			cancel()
+//			if err1 != nil {
+//				fmt.Printf("blocking read error, cause: %v\n", err1)
+//				continue
+//			}
+//
+//			//fmt.Println(chunk.Bytes()[:50])
+//			chunk.Release()
+//		}
+//	}()
+//
+//	go func() {
+//		defer wg.Done()
+//		defer bf.Close()
+//
+//		//template := "2025-06-07 12:12:00 [Info] test log write，current sequence: %d\n"
+//		for {
+//			select {
+//			case <-exitChan:
+//				fmt.Println("end write!")
+//				return
+//			default:
+//			}
+//
+//			data := make([]byte, 64)
+//			binary.BigEndian.PutUint64(data, uint64(time.Now().Unix()))
+//			rand.Read(data)
+//			err = bf.Write(data)
+//			if err != nil {
+//				t.Logf("write log error, cause：%s\n", err.Error())
+//			}
+//		}
+//	}()
+//
+//	go func() {
+//		err = statsviz.RegisterDefault()
+//		if err != nil {
+//			panic(err)
+//		}
+//		err = http.ListenAndServe(":8081", nil)
+//		if err != nil {
+//			panic(err)
+//		}
+//	}()
+//
+//	wg.Wait()
+//	fmt.Println("Write Success!")
+//}

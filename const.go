@@ -71,10 +71,11 @@ func (s SwitchStatus) String() string {
 	}
 }
 
+// Double buffer states
 const (
-	WritingStatus = iota
-	PendingStatus
-	ClosedStatus
+	WritingState = iota
+	SwitchingState
+	ClosedState
 )
 
 const (
@@ -109,3 +110,16 @@ func (m ReadMode) Validate() bool {
 		return false
 	}
 }
+
+// Smart buffer state
+const (
+	WriteOnly = iota
+	ReadOnly
+	Switching
+)
+
+// link list for path
+const (
+	FrontPath = "front"
+	BackPath  = "back"
+)
