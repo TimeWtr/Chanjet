@@ -1,6 +1,8 @@
 module github.com/TimeWtr/TurboStream
 
-go 1.24.1
+go 1.23.0
+
+toolchain go1.24.1
 
 require (
 	github.com/prometheus/client_golang v1.22.0
