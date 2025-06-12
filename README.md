@@ -1,5 +1,5 @@
 <div align="center">
-<img src="./assets/images/logo.png" alt="TURBOSTREAM Logo" style="width: 30%; max-width: 300px;">
+<img src="./assets/images/logo.png" alt="TURBOSTREAM Logo" style="width: 45%; max-width: 450px;">
 
 <br/>
 
