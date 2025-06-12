@@ -20,8 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/TimeWtr/Chanjet/core/component"
-	"github.com/TimeWtr/Chanjet/errorx"
+	"github.com/TimeWtr/TurboStream/core/component"
+	"github.com/TimeWtr/TurboStream/errorx"
 )
 
 // EvictPolicy defines an interface for eviction policies.
@@ -30,7 +30,7 @@ import (
 // to check if eviction is necessary, perform the eviction, return the policy's name,
 // and provide metrics related to the eviction process.
 //
-//go:generate mockgen -destination=./mocks/queue/evictpolicy_mock.go -package queue_mocks github.com/TimeWtr/Chanjet/core EvictPolicy
+//go:generate mockgen -destination=./mocks/queue/evictpolicy_mock.go -package queue_mocks github.com/TimeWtr/TurboStream/core EvictPolicy
 type EvictPolicy interface {
 	// ShouldEvict checks if eviction should be performed.
 	// It returns true if eviction is necessary, false otherwise.
@@ -58,7 +58,7 @@ type PolicyConfig struct {
 }
 type FixedThreshold struct{}
 
-//go:generate mockgen -destination=./mocks/queue/bufferqueuemanager_mock.go -package queue_mocks github.com/TimeWtr/Chanjet/core BufferQueueManager
+//go:generate mockgen -destination=./mocks/queue/bufferqueuemanager_mock.go -package queue_mocks github.com/TimeWtr/TurboStream/core BufferQueueManager
 type BufferQueueManager interface {
 	Push(s *component.QueueItem) error
 	Pick() (*component.QueueItem, error)

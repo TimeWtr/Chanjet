@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TimeWtr/Chanjet/errorx"
+	"github.com/TimeWtr/TurboStream/errorx"
 )
 
 type SwitchConfig struct {

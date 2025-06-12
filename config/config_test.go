@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TimeWtr/Chanjet/errorx"
+	"github.com/TimeWtr/TurboStream/errorx"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -1,13 +1,13 @@
-# Chanjet
+# TurboStream
 <div align="center">
-<a title="Build Status" target="_blank" href="https://github.com/TimeWtr/Chanjet/actions?query=workflow%3ATests"><img>
+<a title="Build Status" target="_blank" href="https://github.com/TimeWtr/TurboStream/actions?query=workflow%3ATests"><img>
 <img src="https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white" alt="Go Version">
 <img src="https://img.shields.io/badge/license-Apache2.0-blue" alt="License">
 <img src="https://img.shields.io/badge/performance-optimized-brightgreen" alt="Performance">
-<a title="Tag" target="_blank" href="https://github.com/TimeWtr/Chanjet/tags"><img src="https://img.shields.io/github/v/tag/TimeWtr/Chanjet?color=%23ff8936&logo=fitbit&style=flat-square" /></a>
+<a title="Tag" target="_blank" href="https://github.com/TimeWtr/TurboStream/tags"><img src="https://img.shields.io/github/v/tag/TimeWtr/TurboStream?color=%23ff8936&logo=fitbit&style=flat-square" /></a>
 <br/>
-<a title="Doc for Poolx" target="_blank" href="https://pkg.go.dev/github.com/TimeWtr/Chanjet?tab=doc"><img src="https://img.shields.io/badge/go.dev-doc-007d9c?style=flat-square&logo=read-the-docs" /></a>
-<img src="https://goreportcard.com/badge/github.com/TimeWtr/Chanjet" alt="Go Report">
+<a title="Doc for Poolx" target="_blank" href="https://pkg.go.dev/github.com/TimeWtr/TurboStream?tab=doc"><img src="https://img.shields.io/badge/go.dev-doc-007d9c?style=flat-square&logo=read-the-docs" /></a>
+<img src="https://goreportcard.com/badge/github.com/TimeWtr/TurboStream" alt="Go Report">
 </div>
 
 
@@ -88,56 +88,56 @@ BenchmarkBlockingRead_Throughput_Safe_Read_64KB-10    	 9623844	       125.2 ns/
 ## Monitoring indicator description
 
 ### global namespace
-All indicators are prefixed with `Chanjet_` as the namespace.
+All indicators are prefixed with `TurboStream_` as the namespace.
 
 ---
 
 ### Write relevant indicators
 | Indicator name                          | Type       | Label/Dimension | Describe                                |
 |------------------------------------|------------|-----------------|-----------------------------------------|
-| `Chanjet_write_counts_total`       | CounterVec | `result`        | Total number of write operations (label value: `success` success / `failure` failure)|
-| `Chanjet_write_sizes_total`        | Counter    | -               | The total number of bytes of data written (unit: bytes)                       |
-| `Chanjet_write_errors_total`       | Counter    | -               | Number of write failures (including network errors, verification failures, etc.)                  |
+| `TurboStream_write_counts_total`       | CounterVec | `result`        | Total number of write operations (label value: `success` success / `failure` failure)|
+| `TurboStream_write_sizes_total`        | Counter    | -               | The total number of bytes of data written (unit: bytes)                       |
+| `TurboStream_write_errors_total`       | Counter    | -               | Number of write failures (including network errors, verification failures, etc.)                  |
 
 ---
 
 ### Read related indicators
 | Indicator name                         | Type       | Label/Dimension | Describe                                                                             |
 |------------------------------------|------------|-----------------|--------------------------------------------------------------------------------------|
-| `Chanjet_read_counts_total`        | CounterVec | `result`        | Total number of read operations (label value: `success` success / `failure` failure) |
-| `Chanjet_read_sizes_total`         | Counter    | -               | The total number of bytes of data read (unit: bytes)                                 |
-| `Chanjet_read_errors_total`        | Counter    | -               | Number of read failures (including timeouts, verification failures, etc.)                                                                 |
+| `TurboStream_read_counts_total`        | CounterVec | `result`        | Total number of read operations (label value: `success` success / `failure` failure) |
+| `TurboStream_read_sizes_total`         | Counter    | -               | The total number of bytes of data read (unit: bytes)                                 |
+| `TurboStream_read_errors_total`        | Counter    | -               | Number of read failures (including timeouts, verification failures, etc.)                                                                 |
 
 ---
 
 ### Buffer switching indicator
 | Indicator name                        | Type       | Describe                                           |
 |------------------------------------|------------|----------------------------------------------------|
-| `Chanjet_switch_counts_total`      | Counter    | Total number of buffer switch operations                                        |
-| `Chanjet_switch_latency`           | Histogram  | Switching delay distribution (unit: seconds, preset bucket boundaries: [0.001, 0.005, 0.01, 0.05, 0.1]) |
-| `Chanjet_skip_switch_counts_total` | Counter    | The number of times the scheduled task skips switching (counted when the switching condition is not met)                            |
+| `TurboStream_switch_counts_total`      | Counter    | Total number of buffer switch operations                                        |
+| `TurboStream_switch_latency`           | Histogram  | Switching delay distribution (unit: seconds, preset bucket boundaries: [0.001, 0.005, 0.01, 0.05, 0.1]) |
+| `TurboStream_skip_switch_counts_total` | Counter    | The number of times the scheduled task skips switching (counted when the switching condition is not met)                            |
 
 ---
 
 ### Asynchronous processing metrics
 | Indicator name                          | Type       | Describe                                                           |
 |------------------------------------|------------|-------------------------------------------------------------|
-| `Chanjet_async_workers`            | Gauge      | The number of currently active asynchronous work coroutines |
+| `TurboStream_async_workers`            | Gauge      | The number of currently active asynchronous work coroutines |
 
 ---
 
 ### buffer pool metrics
 | Indicator name                           | Type    | Describe                                                                  |
 |------------------------------------|---------|----------------------------------------------------------------------|
-| `Chanjet_pool_alloc_total`         | Counter | Object pool memory allocation times                                                  |
+| `TurboStream_pool_alloc_total`         | Counter | Object pool memory allocation times                                                  |
 
 ---
 
 ### Channel status indicator
 | Indicator name                           | Type  | Describe                                                                 |
 |------------------------------------|-------|----------------------------------------------------------------------|
-| `Chanjet_active_channel_data_counts` | Gauge | The number of unprocessed data items in the current active channel                               |
-| `Chanjet_active_channel_data_sizes`  | Gauge | The total size of unprocessed data in the current active channel (unit: bytes)                       |
+| `TurboStream_active_channel_data_counts` | Gauge | The number of unprocessed data items in the current active channel                               |
+| `TurboStream_active_channel_data_sizes`  | Gauge | The total size of unprocessed data in the current active channel (unit: bytes)                       |
 
 ---
 
@@ -154,7 +154,7 @@ All indicators are prefixed with `Chanjet_` as the namespace.
 
 ## 📦 Installation
 ```bash
-go get github.com/TimeWtr/chanjet
+go get github.com/TimeWtr/TurboStream
 ```
 ## 🧩 Usage
 To be added！

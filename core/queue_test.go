@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TimeWtr/Chanjet/core/component"
-	qm "github.com/TimeWtr/Chanjet/core/mocks/queue"
-	"github.com/TimeWtr/Chanjet/errorx"
+	"github.com/TimeWtr/TurboStream/core/component"
+	qm "github.com/TimeWtr/TurboStream/core/mocks/queue"
+	"github.com/TimeWtr/TurboStream/errorx"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )

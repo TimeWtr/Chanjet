@@ -25,12 +25,12 @@ import (
 	"time"
 	"unsafe"
 
-	chanjet "github.com/TimeWtr/Chanjet"
-	"github.com/TimeWtr/Chanjet/config"
-	"github.com/TimeWtr/Chanjet/core/component"
-	metrics2 "github.com/TimeWtr/Chanjet/core/metrics"
-	"github.com/TimeWtr/Chanjet/errorx"
-	"github.com/TimeWtr/Chanjet/pools"
+	ts "github.com/TimeWtr/TurboStream"
+	"github.com/TimeWtr/TurboStream/config"
+	"github.com/TimeWtr/TurboStream/core/component"
+	metrics2 "github.com/TimeWtr/TurboStream/core/metrics"
+	"github.com/TimeWtr/TurboStream/errorx"
+	"github.com/TimeWtr/TurboStream/pools"
 )
 
 const (
@@ -43,7 +43,7 @@ const (
 type Options func(buffer *DoubleBuffer) error
 
 // WithMetrics Enable indicator collection and specify the collector type
-func WithMetrics(collector chanjet.CollectorType) Options {
+func WithMetrics(collector ts.CollectorType) Options {
 	return func(buffer *DoubleBuffer) error {
 		if !collector.Validate() {
 			return errors.New("invalid metrics collector")
@@ -51,9 +51,9 @@ func WithMetrics(collector chanjet.CollectorType) Options {
 
 		buffer.enableMetrics = true
 		switch collector {
-		case chanjet.PrometheusCollector:
+		case ts.PrometheusCollector:
 			buffer.mc = metrics2.NewBatchCollector(metrics2.NewPrometheus())
-		case chanjet.OpenTelemetryCollector:
+		case ts.OpenTelemetryCollector:
 		}
 
 		return nil
@@ -120,7 +120,7 @@ type DoubleBuffer struct {
 	// The strategy switching channels.
 	sw SwitchStrategy
 	// The read mode, include zero copy read and safe read.
-	readMode *chanjet.ReadMode
+	readMode *ts.ReadMode
 	// Waiters manager
 	wm *WaiterManager
 	// Life cycle manager
@@ -143,7 +143,7 @@ func NewDoubleBuffer(size int32, sc *config.SwitchCondition, opts ...Options) (*
 		mc:          metrics2.NewBatchCollector(metrics2.NewPrometheus()),
 		wg:          sync.WaitGroup{},
 		wm:          newWaiterManager(),
-		state:       chanjet.WritingState,
+		state:       ts.WritingState,
 		pm:          pm,
 	}
 
@@ -175,7 +175,7 @@ func NewDoubleBuffer(size int32, sc *config.SwitchCondition, opts ...Options) (*
 }
 
 func (d *DoubleBuffer) Write(p []byte) error {
-	if atomic.LoadInt32(&d.state) == chanjet.ClosedState {
+	if atomic.LoadInt32(&d.state) == ts.ClosedState {
 		return errorx.ErrBufferClose
 	}
 
@@ -201,7 +201,7 @@ func (d *DoubleBuffer) Write(p []byte) error {
 	}
 
 	// fast path
-	if atomic.LoadInt32(&d.state) == chanjet.WritingState {
+	if atomic.LoadInt32(&d.state) == ts.WritingState {
 		if err := d.active.Write(bufferItem); err == nil {
 			_ = d.count.Add(1)
 			return nil
@@ -212,10 +212,10 @@ func (d *DoubleBuffer) Write(p []byte) error {
 	d.writeLock.Lock()
 	defer d.writeLock.Unlock()
 	switch d.active.GetState() {
-	case chanjet.ReadOnly:
+	case ts.ReadOnly:
 		// try switch channel.
 		d.switchChannel()
-	case chanjet.Switching:
+	case ts.Switching:
 		// waiting other switch channel
 		runtime.Gosched()
 	default:
@@ -252,18 +252,18 @@ func (d *DoubleBuffer) needSwitch() bool {
 // switchChannel Perform channel switching
 func (d *DoubleBuffer) switchChannel() {
 	// set switch flag
-	if !atomic.CompareAndSwapInt32(&d.state, chanjet.WritingState, chanjet.SwitchingState) {
+	if !atomic.CompareAndSwapInt32(&d.state, ts.WritingState, ts.SwitchingState) {
 		// TODO add skip switch metrics
 		return
 	}
 
 	d.switchLock.Lock()
 	defer func() {
-		atomic.StoreInt32(&d.state, chanjet.WritingState)
+		atomic.StoreInt32(&d.state, ts.WritingState)
 		d.switchLock.Unlock()
 	}()
 
-	d.active.SetState(chanjet.ReadOnly)
+	d.active.SetState(ts.ReadOnly)
 	newBuf, _ := d.pool.Get().(*component.SmartBuffer)
 	buf := d.swapChannels(newBuf)
 	d.count.Store(0)
@@ -326,7 +326,7 @@ func (d *DoubleBuffer) pickBufferFromHeap() bool {
 	return d.currentBuffer != nil
 }
 
-func (d *DoubleBuffer) RegisterReadMode(readMode chanjet.ReadMode) error {
+func (d *DoubleBuffer) RegisterReadMode(readMode ts.ReadMode) error {
 	if !readMode.Validate() {
 		return errors.New("invalid read mode")
 	}
@@ -491,14 +491,14 @@ func (d *DoubleBuffer) tryRead() (DataChunk, error) {
 		}
 	}
 
-	readMode := *(*chanjet.ReadMode)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.readMode))))
+	readMode := *(*ts.ReadMode)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.readMode))))
 	switch readMode {
-	case chanjet.SafeRead:
+	case ts.SafeRead:
 		res, ok := d.safeRead()
 		if ok {
 			return res, nil
 		}
-	case chanjet.ZeroCopyRead:
+	case ts.ZeroCopyRead:
 		res, ok := d.zeroCopyRead()
 		if ok {
 			return res, nil
@@ -528,7 +528,7 @@ func (d *DoubleBuffer) drainProcessor() {
 }
 
 func (d *DoubleBuffer) Close() {
-	if !atomic.CompareAndSwapInt32(&d.state, chanjet.WritingState, chanjet.ClosedState) {
+	if !atomic.CompareAndSwapInt32(&d.state, ts.WritingState, ts.ClosedState) {
 		return
 	}
 

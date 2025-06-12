@@ -18,7 +18,7 @@ import (
 	"container/heap"
 	"sync"
 
-	"github.com/TimeWtr/Chanjet/core/component"
+	"github.com/TimeWtr/TurboStream/core/component"
 )
 
 type MinHeapItem struct {

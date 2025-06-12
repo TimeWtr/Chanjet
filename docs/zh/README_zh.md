@@ -1,14 +1,14 @@
-# Chanjet
+# TurboStream
 <div align="center">
 <img src="https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white" alt="Go Version">
 <img src="https://img.shields.io/badge/license-Apache2.0-blue" alt="License">
 <img src="https://img.shields.io/badge/performance-optimized-brightgreen" alt="Performance">
-<a title="Tag" target="_blank" href="https://github.com/TimeWtr/Chanjet/tags"><img src="https://img.shields.io/github/v/tag/TimeWtr/Chanjet?color=%23ff8936&logo=fitbit&style=flat-square" /></a>
+<a title="Tag" target="_blank" href="https://github.com/TimeWtr/TurboStream/tags"><img src="https://img.shields.io/github/v/tag/TimeWtr/TurboStream?color=%23ff8936&logo=fitbit&style=flat-square" /></a>
 <br/>
-<a title="Doc for Poolx" target="_blank" href="https://pkg.go.dev/github.com/TimeWtr/Chanjet?tab=doc"><img src="https://img.shields.io/badge/go.dev-doc-007d9c?style=flat-square&logo=read-the-docs" /></a>
-<img src="https://goreportcard.com/badge/github.com/TimeWtr/Chanjet" alt="Go Report">
+<a title="Doc for Poolx" target="_blank" href="https://pkg.go.dev/github.com/TimeWtr/TurboStream?tab=doc"><img src="https://img.shields.io/badge/go.dev-doc-007d9c?style=flat-square&logo=read-the-docs" /></a>
+<img src="https://goreportcard.com/badge/github.com/TimeWtr/TurboStream" alt="Go Report">
 
-[//]: # (<img src="https://img.shields.io/codecov/c/github/TimeWtr/Chanjet?logo=codecov" alt="Coverage">)
+[//]: # (<img src="https://img.shields.io/codecov/c/github/TimeWtr/TurboStream?logo=codecov" alt="Coverage">)
 </div>
 
 
@@ -93,56 +93,56 @@ BenchmarkBlockingRead_Throughput_Safe_Read_64KB-10    	 9623844	       125.2 ns/
 ## 监控指标说明
 
 ### 全局命名空间
-所有指标均以 `Chanjet_` 作为命名空间前缀
+所有指标均以 `TurboStream_` 作为命名空间前缀
 
 ---
 
 ### 写入相关指标
 | 指标名称                           | 类型       | 标签/维度       | 描述                                                                 |
 |------------------------------------|------------|-----------------|----------------------------------------------------------------------|
-| `Chanjet_write_counts_total`       | CounterVec | `result`        | 写入操作总数（标签值：`success` 成功 / `failure` 失败）               |
-| `Chanjet_write_sizes_total`        | Counter    | -               | 已写入数据的总字节数（单位：字节）                                   |
-| `Chanjet_write_errors_total`       | Counter    | -               | 写入失败的次数（含网络错误、校验失败等场景）                         |
+| `TurboStream_write_counts_total`       | CounterVec | `result`        | 写入操作总数（标签值：`success` 成功 / `failure` 失败）               |
+| `TurboStream_write_sizes_total`        | Counter    | -               | 已写入数据的总字节数（单位：字节）                                   |
+| `TurboStream_write_errors_total`       | Counter    | -               | 写入失败的次数（含网络错误、校验失败等场景）                         |
 
 ---
 
 ### 读取相关指标
 | 指标名称                           | 类型       | 标签/维度       | 描述                                                                 |
 |------------------------------------|------------|-----------------|----------------------------------------------------------------------|
-| `Chanjet_read_counts_total`        | CounterVec | `result`        | 读取操作总数（标签值：`success` 成功 / `failure` 失败）               |
-| `Chanjet_read_sizes_total`         | Counter    | -               | 已读取数据的总字节数（单位：字节）                                   |
-| `Chanjet_read_errors_total`        | Counter    | -               | 读取失败的次数（含超时、校验失败等场景）                             |
+| `TurboStream_read_counts_total`        | CounterVec | `result`        | 读取操作总数（标签值：`success` 成功 / `failure` 失败）               |
+| `TurboStream_read_sizes_total`         | Counter    | -               | 已读取数据的总字节数（单位：字节）                                   |
+| `TurboStream_read_errors_total`        | Counter    | -               | 读取失败的次数（含超时、校验失败等场景）                             |
 
 ---
 
 ### 缓冲区切换指标
 | 指标名称                           | 类型       | 描述                                                                 |
 |------------------------------------|------------|----------------------------------------------------------------------|
-| `Chanjet_switch_counts_total`      | Counter    | 缓冲区切换操作总次数                                                 |
-| `Chanjet_switch_latency`           | Histogram  | 切换延迟分布（单位：秒，预设桶边界：[0.001, 0.005, 0.01, 0.05, 0.1]）|
-| `Chanjet_skip_switch_counts_total` | Counter    | 定时任务跳过切换的次数（未达到切换条件时计数）                       |
+| `TurboStream_switch_counts_total`      | Counter    | 缓冲区切换操作总次数                                                 |
+| `TurboStream_switch_latency`           | Histogram  | 切换延迟分布（单位：秒，预设桶边界：[0.001, 0.005, 0.01, 0.05, 0.1]）|
+| `TurboStream_skip_switch_counts_total` | Counter    | 定时任务跳过切换的次数（未达到切换条件时计数）                       |
 
 ---
 
 ### 异步处理指标
 | 指标名称                           | 类型       | 描述                                                                 |
 |------------------------------------|------------|----------------------------------------------------------------------|
-| `Chanjet_async_workers`            | Gauge      | 当前活跃的异步工作协程数量                                           |
+| `TurboStream_async_workers`            | Gauge      | 当前活跃的异步工作协程数量                                           |
 
 ---
 
 ### 缓冲池指标
 | 指标名称                           | 类型       | 描述                                                                 |
 |------------------------------------|------------|----------------------------------------------------------------------|
-| `Chanjet_pool_alloc_total`         | Counter    | 对象池内存分配次数                                                   |
+| `TurboStream_pool_alloc_total`         | Counter    | 对象池内存分配次数                                                   |
 
 ---
 
 ### 通道状态指标
 | 指标名称                           | 类型       | 描述                                                                 |
 |------------------------------------|------------|----------------------------------------------------------------------|
-| `Chanjet_active_channel_data_counts` | Gauge    | 当前活跃通道中未处理的数据条目数量                                   |
-| `Chanjet_active_channel_data_sizes`  | Gauge    | 当前活跃通道中未处理的数据总大小（单位：字节）                       |
+| `TurboStream_active_channel_data_counts` | Gauge    | 当前活跃通道中未处理的数据条目数量                                   |
+| `TurboStream_active_channel_data_sizes`  | Gauge    | 当前活跃通道中未处理的数据总大小（单位：字节）                       |
 
 ---
 
@@ -159,18 +159,18 @@ BenchmarkBlockingRead_Throughput_Safe_Read_64KB-10    	 9623844	       125.2 ns/
 ## 示例 PromQL 查询
 ```promql
 # 计算写入吞吐量（次/秒）
-rate(Chanjet_write_counts_total[1m])
+rate(TurboStream_write_counts_total[1m])
 
 # 获取活跃通道数据积压告警（>1MB 持续5分钟）
-Chanjet_active_channel_data_sizes > 1e6
+TurboStream_active_channel_data_sizes > 1e6
 
 # 统计切换延迟的P99值
-histogram_quantile(0.99, sum(rate(Chanjet_switch_latency_bucket[5m])) by (le))
+histogram_quantile(0.99, sum(rate(TurboStream_switch_latency_bucket[5m])) by (le))
 ```
 
 ## 📦 Installation
 ```bash
-go get github.com/TimeWtr/chanjet
+go get github.com/TimeWtr/TurboStream
 ```
 ## 🧩 用法
 待补充！

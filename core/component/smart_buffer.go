@@ -20,8 +20,8 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	chanjet "github.com/TimeWtr/Chanjet"
-	"github.com/TimeWtr/Chanjet/errorx"
+	ts "github.com/TimeWtr/TurboStream"
+	"github.com/TimeWtr/TurboStream/errorx"
 )
 
 type BufferItem struct {
@@ -45,7 +45,7 @@ func NewSmartBuffer(capacity int32) *SmartBuffer {
 		head:     -1,
 		tail:     -1,
 		capacity: capacity,
-		state:    chanjet.WriteOnly,
+		state:    ts.WriteOnly,
 		sem:      make(chan struct{}),
 	}
 	atomic.StoreInt32(&s.count, 0)
@@ -66,7 +66,7 @@ func (s *SmartBuffer) Len() int {
 }
 
 func (s *SmartBuffer) Write(bufferItem BufferItem) error {
-	if s.state == chanjet.ClosedState {
+	if s.state == ts.ClosedState {
 		return errorx.ErrBufferClose
 	}
 
@@ -88,13 +88,13 @@ func (s *SmartBuffer) calcPos(index int32) int32 {
 // Push The method that actually executes the data writing
 func (s *SmartBuffer) Push(sli BufferItem) error {
 	for {
-		if atomic.LoadInt32(&s.state) == chanjet.ReadOnly {
+		if atomic.LoadInt32(&s.state) == ts.ReadOnly {
 			return errors.New("buffer is read-only")
 		}
 
 		currentCount := atomic.LoadInt32(&s.count)
 		if currentCount >= s.capacity {
-			atomic.CompareAndSwapInt32(&s.state, chanjet.WriteOnly, chanjet.ReadOnly)
+			atomic.CompareAndSwapInt32(&s.state, ts.WriteOnly, ts.ReadOnly)
 			return errors.New("buffer is read-only")
 		}
 
@@ -122,7 +122,7 @@ func (s *SmartBuffer) Push(sli BufferItem) error {
 }
 
 func (s *SmartBuffer) Reset() {
-	s.state = chanjet.WriteOnly
+	s.state = ts.WriteOnly
 	s.count = 0
 	s.head, s.tail = -1, -1
 	select {

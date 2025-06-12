@@ -15,10 +15,10 @@
 package metrics
 
 import (
-	chanjet "github.com/TimeWtr/Chanjet"
+	ts "github.com/TimeWtr/TurboStream"
 )
 
-// Collector 指标监控接口
+// Collector Indicator monitoring interface
 type Collector interface {
 	CollectSwitcher(enable bool) // 采集器开关
 	WriteMetrics
@@ -28,42 +28,43 @@ type Collector interface {
 	ChannelMetrics
 }
 
-// WriteMetrics 写操作指标
+// WriteMetrics Write operation indicator
 type WriteMetrics interface {
-	// ObserveWrite 写入的数量、写入的大小、错误数
+	// ObserveWrite Number of writes, size of writes, number of errors
 	ObserveWrite(counts, bytes, errors float64)
 }
 
-// ReadMetrics 读取数据写入readq通道的指标数据
+// ReadMetrics Read data and write indicator data to the readq channel
 type ReadMetrics interface {
-	// ObserveRead 读取的数量、写入的大小、错误数
+	// ObserveRead Number of reads, size of writes, number of errors
 	ObserveRead(counts, bytes, errors float64)
 }
 
-// PoolMetrics 缓存池指标数据
+// PoolMetrics Cache pool metrics data
 type PoolMetrics interface {
-	// AllocInc 分配的对象计数增加的差值
+	// AllocInc Difference by which the allocated object count increases
 	AllocInc(delta float64)
 }
 
-// AsyncGoroutineMetrics 异步读通道数据的goroutine数量
+// AsyncGoroutineMetrics The number of goroutines that asynchronously read channel data
 type AsyncGoroutineMetrics interface {
-	// ObserveAsyncGoroutine 异步goroutine数量的监控，增加/减少都对应各自的数量
-	ObserveAsyncGoroutine(operation chanjet.OperationType, delta float64)
+	// ObserveAsyncGoroutine Monitoring of the number of asynchronous goroutines,
+	// increase/decrease corresponds to the respective number
+	ObserveAsyncGoroutine(operation ts.OperationType, delta float64)
 }
 
-// ChannelMetrics 通道相关的指标数据
+// ChannelMetrics Channel related indicator data
 type ChannelMetrics interface {
 	ChannelSwitchMetrics
 	ActiveChannelMetrics
 }
 
-// ChannelSwitchMetrics 通道切换的指标数据
+// ChannelSwitchMetrics Channel switching indicator data
 type ChannelSwitchMetrics interface {
-	SwitchWithLatency(status chanjet.SwitchStatus, counts float64, millSeconds float64)
+	SwitchWithLatency(status ts.SwitchStatus, counts float64, millSeconds float64)
 }
 
-// ActiveChannelMetrics 活跃缓冲区的通道指标
+// ActiveChannelMetrics Channel indicators of active buffers
 type ActiveChannelMetrics interface {
 	ObserveActive(counts, size float64)
 }

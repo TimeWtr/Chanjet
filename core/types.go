@@ -17,7 +17,7 @@ package core
 import (
 	"context"
 
-	chanjet "github.com/TimeWtr/Chanjet"
+	ts "github.com/TimeWtr/TurboStream"
 )
 
 type (
@@ -26,7 +26,7 @@ type (
 )
 
 type ReadBuffer interface {
-	RegisterReadMode(readMode chanjet.ReadMode) error
+	RegisterReadMode(readMode ts.ReadMode) error
 	BlockingRead(ctx context.Context) ([]byte, error)
 	RegisterCallback(cb DataCallBack) UnregisterFunc
 	BatchRead(ctx context.Context, batchSize int) [][]byte
