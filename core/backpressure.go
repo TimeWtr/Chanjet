@@ -13,19 +13,3 @@
 // limitations under the License.
 
 package core
-
-type DataChunk struct {
-	data []byte // data value
-	free func() // release data method
-}
-
-func (d *DataChunk) Bytes() []byte {
-	return d.data
-}
-
-func (d *DataChunk) Release() {
-	if d.free != nil {
-		d.free()
-		d.free = nil
-	}
-}

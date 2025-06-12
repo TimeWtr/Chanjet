@@ -34,3 +34,9 @@ var (
 	ErrReadMode = errors.New("read mode error")
 	ErrRead     = errors.New("read error")
 )
+
+var (
+	ErrQueueFull   = errors.New("queue is full")
+	ErrQueueEmpty  = errors.New("queue is empty")
+	ErrQueueClosed = errors.New("queue is closed")
+)

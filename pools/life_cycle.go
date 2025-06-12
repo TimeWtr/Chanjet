@@ -15,8 +15,10 @@
 package pools
 
 import (
+	"runtime"
 	"sync"
 	"time"
+	"unsafe"
 )
 
 const (
@@ -58,7 +60,7 @@ func NewLifeCycleManager() *LifeCycleManager {
 }
 
 func (l *LifeCycleManager) Preload(capacity int32) {
-	const preLoadPercent = 0.3
+	const preLoadPercent = 0.2
 	preloadSize := int(float64(capacity) * preLoadPercent)
 	for i := 0; i < preloadSize; i++ {
 		l.SmallPool.Put(l.SmallPool.Get())
@@ -112,7 +114,7 @@ func (m *MediumPool) cleanup() {
 		return
 	}
 
-	const maxCleanCounts = 100
+	const maxCleanCounts = 200
 	count := 0
 	for ptr, t := range m.cache {
 		if time.Since(t) > time.Minute {
@@ -126,8 +128,17 @@ func (m *MediumPool) cleanup() {
 }
 
 type BigDataPool struct {
-	pool map[uintptr]BigDataEntry // the relationship of object uintptr and Entry
-	mu   sync.RWMutex             // read-write lock
+	pool        map[uintptr]BigDataEntry // the relationship of object uintptr and Entry
+	mu          sync.RWMutex             // read-write lock
+	currentSize int
+	maxSize     int
+}
+
+func NewBigDataPool(maxSize int) *BigDataPool {
+	return &BigDataPool{
+		pool:    make(map[uintptr]BigDataEntry),
+		maxSize: maxSize,
+	}
 }
 
 func (b *BigDataPool) cleanup() {
@@ -138,7 +149,7 @@ func (b *BigDataPool) cleanup() {
 		return
 	}
 
-	const maxCleanCounts = 100
+	const maxCleanCounts = 200
 	count := 0
 	for ptr, bd := range b.pool {
 		if bd.ref != 0 {
@@ -146,7 +157,7 @@ func (b *BigDataPool) cleanup() {
 		}
 
 		delete(b.pool, ptr)
-		bd.data = nil
+		bd.owner = 0
 		count++
 		if count > maxCleanCounts {
 			return
@@ -154,14 +165,15 @@ func (b *BigDataPool) cleanup() {
 	}
 }
 
-func (b *BigDataPool) Put(ptr uintptr, data []byte) {
+func (b *BigDataPool) Put(ptr uintptr, size int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.currentSize += size
 	b.pool[ptr] = BigDataEntry{
-		data: data,
-		size: len(data),
-		ref:  1,
+		owner: ptr,
+		size:  size,
+		ref:   1,
 	}
 }
 
@@ -178,8 +190,20 @@ func (b *BigDataPool) Release(ptr uintptr) {
 	b.pool[ptr] = entry
 }
 
+func (b *BigDataPool) Free(ptr unsafe.Pointer, size int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if entry, exist := b.pool[uintptr(ptr)]; exist {
+		runtime.SetFinalizer((*byte)(ptr), nil)
+		entry.ref = 0
+		entry.owner = 0
+		b.currentSize -= size
+		delete(b.pool, uintptr(ptr))
+	}
+}
+
 type BigDataEntry struct {
-	size int    // data size
-	data []byte // data value
-	ref  int    // data reference counter
+	size  int     // data size
+	owner uintptr // original data reference
+	ref   int     // data reference counter
 }

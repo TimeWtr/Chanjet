@@ -17,12 +17,17 @@ package core
 import (
 	"container/heap"
 	"sync"
+
+	"github.com/TimeWtr/Chanjet/core/component"
 )
 
 type MinHeapItem struct {
-	sequence int64        // passive单调递增的全局唯一序列号，用于保证passive的全局有序性
-	buf      *SmartBuffer // Passive缓冲区
-	index    int          // 在堆中的下标索引
+	// Passive monotonically increasing global sequence unique number, used to ensure passive global community
+	sequence int64
+	// Passive buffer
+	buf *component.SmartBuffer
+	// the index in heap
+	index int
 }
 
 type MinHeap []*MinHeapItem
