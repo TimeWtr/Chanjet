@@ -18,38 +18,39 @@ import (
 	"sync/atomic"
 	"time"
 
-	chanjet "github.com/TimeWtr/Chanjet"
+	ts "github.com/TimeWtr/TurboStream"
 )
 
-// BatchCollector 批量上报指标数据的采集器，抽象出来给到调用方的接口
+// BatchCollector Collector for reporting indicator data in batches,
+// abstracted to provide interface to the caller
 type BatchCollector interface {
 	Controller
 	Recorder
 }
 
-// Recorder 提供给调用方的接口
+// Recorder Interface provided to the caller
 type Recorder interface {
-	RecordWrite(size int64, err error)                              // 上报写数据
-	RecordRead(count, size int64, err error)                        // 上报读数据
-	RecordSwitch(status chanjet.SwitchStatus, latencySeconds int64) // 上报通道切换数据
-	ObserveAsyncWorker(op chanjet.OperationType)                    // 上报异步goroutine数据
-	RecordPoolAlloc()                                               // 上报池对象创建数据
+	RecordWrite(size int64, err error)                         // Report write data
+	RecordRead(count, size int64, err error)                   // Report reading data
+	RecordSwitch(status ts.SwitchStatus, latencySeconds int64) // Report channel switching data
+	ObserveAsyncWorker(op ts.OperationType)                    // Report asynchronous goroutine data
+	RecordPoolAlloc()                                          // Report pool object creation data
 }
 
-// Controller 批量更新控制器
+// Controller Batch update controller
 type Controller interface {
-	Start() // 启动异步批量更新
-	Stop()  // 停止异步批量更新
-	Flush() // 强制立即批量更新
+	Start() // Start asynchronous batch update
+	Stop()  // Stop asynchronous batch updates
+	Flush() // Force immediate batch update
 }
 
-// Write 写数据的指标
+// Write Indicators for writing data
 type Write struct {
-	writeCounts             int64 // 写入的总条数数量
-	writeSizes              int64 // 写入的总大小
-	writeErrors             int64 // 写入失败的错误计数
-	activeChannelDataCounts int64 // 活跃通道中写入数据的条数
-	activeChannelDataSizes  int64 // 活跃通道中写入数据的大小
+	writeCounts             int64 // The total number of entries written
+	writeSizes              int64 // total size written
+	writeErrors             int64 // Write failure error count
+	activeChannelDataCounts int64 // The number of data written in the active channel
+	activeChannelDataSizes  int64 // The size of data written in the active channel
 }
 
 func (w *Write) Reset() {
@@ -60,11 +61,11 @@ func (w *Write) Reset() {
 	atomic.StoreInt64(&w.writeErrors, 0)
 }
 
-// Read 读数据的指标
+// Read Indicators for reading data
 type Read struct {
-	readCounts int64 // 写入读取通道的总条数
-	readSizes  int64 // 写入读取通道的总大小
-	readErrors int64 // 写入读取通道错误计数
+	readCounts int64 // The total number of write and read channels
+	readSizes  int64 // The total size written to the read channel
+	readErrors int64 // Write read channel error count
 }
 
 func (r *Read) Reset() {
@@ -74,12 +75,12 @@ func (r *Read) Reset() {
 }
 
 type Supporting struct {
-	asyncWorkerIncCounts int64 // 异步处理协程增加数
-	asyncWorkerDecCounts int64 // 异步处理协程减少数
-	poolAlloc            int64 // 对象池分配次数
-	switchCounts         int64 // 缓冲区切换次数
-	switchLatency        int64 // 切换延迟
-	skipSwitchCounts     int64 // 定时任务跳过通道切换的次数
+	asyncWorkerIncCounts int64 // The number of asynchronous processing coroutines increased
+	asyncWorkerDecCounts int64 // Asynchronous processing coroutine reduction
+	poolAlloc            int64 // Object pool allocation times
+	switchCounts         int64 // Buffer switching times
+	switchLatency        int64 // switching delay
+	skipSwitchCounts     int64 // The number of times the scheduled task skips channel switching
 }
 
 func (s *Supporting) Reset() {
@@ -93,15 +94,15 @@ func (s *Supporting) Reset() {
 
 var _ Recorder = (*BatchCollectImpl)(nil)
 
-// BatchCollectImpl 批量指标采集器，封装底层采集器，增加定时任务
-// 定期将指标数据写入到底层采集器
+// BatchCollectImpl Batch indicator collector, encapsulates the underlying collector,
+// and adds scheduled tasks regularly write indicator data to the underlying collector
 type BatchCollectImpl struct {
-	w   *Write        // 写数据指标
-	r   *Read         // 读数据指标
-	sp  *Supporting   // 支撑性指标
-	mc  Collector     // 底层指标采集器
-	t   *time.Ticker  // 定时器
-	sem chan struct{} // 关闭定时器
+	w   *Write        // Write data indicator
+	r   *Read         // Read data indicator
+	sp  *Supporting   // Supporting indicators
+	mc  Collector     // Bottom-level indicator collector
+	t   *time.Ticker  // timer
+	sem chan struct{} // shutdown the timer
 }
 
 func NewBatchCollector(mc Collector) *BatchCollectImpl {
@@ -142,19 +143,19 @@ func (b *BatchCollectImpl) RecordRead(count, size int64, err error) {
 	atomic.AddInt64(&b.r.readSizes, size)
 }
 
-func (b *BatchCollectImpl) RecordSwitch(status chanjet.SwitchStatus, latencySeconds int64) {
+func (b *BatchCollectImpl) RecordSwitch(status ts.SwitchStatus, latencySeconds int64) {
 	switch status {
-	case chanjet.SwitchSkip:
+	case ts.SwitchSkip:
 		atomic.AddInt64(&b.sp.skipSwitchCounts, 1)
-	case chanjet.SwitchSuccess:
+	case ts.SwitchSuccess:
 		atomic.AddInt64(&b.sp.switchCounts, 1)
 		atomic.StoreInt64(&b.sp.switchLatency, latencySeconds)
-	case chanjet.SwitchFailure:
+	case ts.SwitchFailure:
 	}
 }
 
-func (b *BatchCollectImpl) ObserveAsyncWorker(op chanjet.OperationType) {
-	if op == chanjet.MetricsIncOp {
+func (b *BatchCollectImpl) ObserveAsyncWorker(op ts.OperationType) {
+	if op == ts.MetricsIncOp {
 		atomic.AddInt64(&b.sp.asyncWorkerIncCounts, 1)
 		return
 	}
@@ -203,13 +204,13 @@ func (b *BatchCollectImpl) report() {
 		float64(atomic.LoadInt64(&b.r.readErrors)))
 	b.r.Reset()
 
-	b.mc.ObserveAsyncGoroutine(chanjet.MetricsIncOp, float64(atomic.LoadInt64(&b.sp.asyncWorkerIncCounts)))
-	b.mc.ObserveAsyncGoroutine(chanjet.MetricsDecOp, float64(atomic.LoadInt64(&b.sp.asyncWorkerDecCounts)))
+	b.mc.ObserveAsyncGoroutine(ts.MetricsIncOp, float64(atomic.LoadInt64(&b.sp.asyncWorkerIncCounts)))
+	b.mc.ObserveAsyncGoroutine(ts.MetricsDecOp, float64(atomic.LoadInt64(&b.sp.asyncWorkerDecCounts)))
 	b.mc.AllocInc(float64(atomic.LoadInt64(&b.sp.poolAlloc)))
-	b.mc.SwitchWithLatency(chanjet.SwitchSuccess,
+	b.mc.SwitchWithLatency(ts.SwitchSuccess,
 		float64(atomic.LoadInt64(&b.sp.switchCounts)),
 		float64(atomic.LoadInt64(&b.sp.switchLatency)))
-	b.mc.SwitchWithLatency(chanjet.SwitchSkip,
+	b.mc.SwitchWithLatency(ts.SwitchSkip,
 		float64(atomic.LoadInt64(&b.sp.skipSwitchCounts)), 0)
 	b.sp.Reset()
 }

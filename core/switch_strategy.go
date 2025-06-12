@@ -17,7 +17,7 @@ package core
 import (
 	"time"
 
-	chanjet "github.com/TimeWtr/Chanjet"
+	ts "github.com/TimeWtr/TurboStream"
 )
 
 const MinBufferSize = 1
@@ -52,9 +52,9 @@ func (d *DefaultStrategy) needSwitch(currentCount, bufferSize int32, elapsed, in
 	countFactor := float64(currentCount) / float64(bufferSize)
 	// Calculate switch time factor (0-1)
 	switchFactor := float64(elapsedNs) / float64(intervalNs)
-	combined := chanjet.TimeWeight*switchFactor + chanjet.SizeWeight*countFactor
+	combined := ts.TimeWeight*switchFactor + ts.SizeWeight*countFactor
 
-	return combined >= chanjet.FullCapacity
+	return combined >= ts.FullCapacity
 }
 
 type SizeOnlyStrategy struct{}

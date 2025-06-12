@@ -17,17 +17,17 @@ package metrics
 import (
 	"net/http"
 
-	chanjet "github.com/TimeWtr/Chanjet"
+	ts "github.com/TimeWtr/TurboStream"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
 	mc       *Prometheus
-	registry *prometheus.Registry // 指标注册表
+	registry *prometheus.Registry // Indicator registry
 )
 
-// GetHandler 返回HTTP处理器用于对接各种框架
+// GetHandler Return HTTP handler for docking with various frameworks
 func GetHandler() http.Handler {
 	return promhttp.HandlerFor(
 		registry,
@@ -38,20 +38,20 @@ func GetHandler() http.Handler {
 var _ Collector = (*Prometheus)(nil)
 
 type Prometheus struct {
-	enabled                 bool                   // 是否开启指标采集
-	writeCounter            *prometheus.CounterVec // 写入的总条数数量
-	writeSizes              prometheus.Counter     // 写入的总大小
-	writeErrors             prometheus.Counter     // 写入失败的错误计数
-	readCounter             *prometheus.CounterVec // 写入读取通道的总条数
-	readSizes               prometheus.Counter     // 写入读取通道的总大小
-	readErrors              prometheus.Counter     // 写入读取通道错误计数
-	switchCounts            prometheus.Counter     // 缓冲区切换次数
-	switchLatency           prometheus.Histogram   // 切换延迟
-	skipSwitchCounts        prometheus.Counter     // 定时任务跳过通道切换的次数
-	activeChannelDataCounts prometheus.Gauge       // 活跃通道中写入数据的条数
-	activeChannelDataSizes  prometheus.Gauge       // 活跃通道中写入数据的大小
-	asyncWorkers            prometheus.Gauge       // 异步处理协程数
-	poolAlloc               prometheus.Counter     // 对象池分配次数
+	enabled                 bool                   // Whether to enable indicator collection
+	writeCounter            *prometheus.CounterVec // The total number of entries written
+	writeSizes              prometheus.Counter     // total size written
+	writeErrors             prometheus.Counter     // Write failure error count
+	readCounter             *prometheus.CounterVec // The total number of write and read channels
+	readSizes               prometheus.Counter     // The total size written to the read channel
+	readErrors              prometheus.Counter     // Write read channel error count
+	switchCounts            prometheus.Counter     // Buffer switching times
+	switchLatency           prometheus.Histogram   // switching delay
+	skipSwitchCounts        prometheus.Counter     // The number of times the scheduled task skips channel switching
+	activeChannelDataCounts prometheus.Gauge       // The number of data written in the active channel
+	activeChannelDataSizes  prometheus.Gauge       // The size of data written in the active channel
+	asyncWorkers            prometheus.Gauge       // Number of asynchronous processing coroutines
+	poolAlloc               prometheus.Counter     // Object pool allocation times
 }
 
 func NewPrometheus() *Prometheus {
@@ -61,7 +61,7 @@ func NewPrometheus() *Prometheus {
 }
 
 func (p *Prometheus) register() *Prometheus {
-	const namespace = "Chanjet"
+	const namespace = "turbo stream"
 	p.writeCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "write_counts_total",
@@ -188,29 +188,29 @@ func (p *Prometheus) AllocInc(delta float64) {
 	p.poolAlloc.Add(delta)
 }
 
-func (p *Prometheus) ObserveAsyncGoroutine(operation chanjet.OperationType, counts float64) {
+func (p *Prometheus) ObserveAsyncGoroutine(operation ts.OperationType, counts float64) {
 	if !p.enabled {
 		return
 	}
 
-	if operation == chanjet.MetricsIncOp {
+	if operation == ts.MetricsIncOp {
 		p.asyncWorkers.Add(counts)
 	} else {
 		p.asyncWorkers.Add(-counts)
 	}
 }
 
-func (p *Prometheus) SwitchWithLatency(status chanjet.SwitchStatus, counts, millSeconds float64) {
+func (p *Prometheus) SwitchWithLatency(status ts.SwitchStatus, counts, millSeconds float64) {
 	if !p.enabled {
 		return
 	}
 
 	switch status {
-	case chanjet.SwitchSuccess:
+	case ts.SwitchSuccess:
 		p.switchCounts.Add(counts)
 		p.switchLatency.Observe(millSeconds)
-	case chanjet.SwitchFailure:
-	case chanjet.SwitchSkip:
+	case ts.SwitchFailure:
+	case ts.SwitchSkip:
 		p.skipSwitchCounts.Inc()
 	}
 }
