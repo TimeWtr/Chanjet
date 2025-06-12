@@ -151,7 +151,7 @@ func TestDoubleBuffer_BlockingRead(t *testing.T) {
 				return
 			}
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*5)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 			chunk, err1 := db.BlockingRead(ctx)
 			cancel()
 			if err1 != nil {
@@ -262,7 +262,7 @@ func BenchmarkBlockingRead_Throughput(b *testing.B) {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(b.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	b.ResetTimer()
@@ -315,7 +315,7 @@ func BenchmarkBlockingRead_PerfMetrics(b *testing.B) {
 	}
 
 	// Writer goroutine (runs for entire benchmark duration)
-	ctx, cancel := context.WithCancel(b.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go func() {
@@ -391,7 +391,7 @@ func BenchmarkBlockingRead_PerfMetrics_64KB(b *testing.B) {
 	}
 
 	// Writer goroutine (runs for entire benchmark duration)
-	ctx, cancel := context.WithCancel(b.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go func() {
@@ -455,7 +455,7 @@ func BenchmarkBlockingRead_Detailed(b *testing.B) {
 	}
 
 	// Writer goroutine
-	ctx, cancel := context.WithCancel(b.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -489,7 +489,7 @@ func BenchmarkBlockingRead_Detailed(b *testing.B) {
 		start := time.Now()
 
 		// Perform read operation
-		chunk, err1 := db.BlockingRead(b.Context())
+		chunk, err1 := db.BlockingRead(context.Background())
 		if err1 != nil {
 			b.Fatalf("BlockingRead failed: %v", err1)
 		}
@@ -539,7 +539,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_128Bytes(b *testing.B) {
 	}
 
 	// Writer goroutine
-	ctx, cancel := context.WithCancel(b.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -565,7 +565,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_128Bytes(b *testing.B) {
 
 	// Run benchmark iterations
 	for i := 0; i < b.N; i++ {
-		_, err = db.BlockingRead(b.Context())
+		_, err = db.BlockingRead(context.Background())
 		if err != nil {
 			b.Fatalf("BlockingRead failed: %v", err)
 		}
@@ -602,7 +602,7 @@ func BenchmarkBlockingRead_Throughput_Safe_Read_128Bytes(b *testing.B) {
 	}
 
 	// Writer goroutine
-	ctx, cancel := context.WithCancel(b.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -628,7 +628,7 @@ func BenchmarkBlockingRead_Throughput_Safe_Read_128Bytes(b *testing.B) {
 
 	// Run benchmark iterations
 	for i := 0; i < b.N; i++ {
-		_, err = db.BlockingRead(b.Context())
+		_, err = db.BlockingRead(context.Background())
 		if err != nil {
 			b.Fatalf("BlockingRead failed: %v", err)
 		}
@@ -665,7 +665,7 @@ func BenchmarkBlockingRead_Throughput_Safe_Read_64KB(b *testing.B) {
 	}
 
 	// Writer goroutine
-	ctx, cancel := context.WithCancel(b.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -691,7 +691,7 @@ func BenchmarkBlockingRead_Throughput_Safe_Read_64KB(b *testing.B) {
 
 	// Run benchmark iterations
 	for i := 0; i < b.N; i++ {
-		_, err = db.BlockingRead(b.Context())
+		_, err = db.BlockingRead(context.Background())
 		if err != nil {
 			b.Fatalf("BlockingRead failed: %v", err)
 		}
@@ -728,7 +728,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB(b *testing.B) {
 	}
 
 	// Writer goroutine
-	ctx, cancel := context.WithCancel(b.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -754,7 +754,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB(b *testing.B) {
 
 	// Run benchmark iterations
 	for i := 0; i < b.N; i++ {
-		_, err = db.BlockingRead(b.Context())
+		_, err = db.BlockingRead(context.Background())
 		if err != nil {
 			b.Fatalf("BlockingRead failed: %v", err)
 		}
@@ -791,7 +791,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB_10Core(b *testing.B) {
 	}
 	b.SetParallelism(10)
 	// Writer goroutine
-	ctx, cancel := context.WithCancel(b.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -817,7 +817,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB_10Core(b *testing.B) {
 
 	// Run benchmark iterations
 	for i := 0; i < b.N; i++ {
-		_, err = db.BlockingRead(b.Context())
+		_, err = db.BlockingRead(context.Background())
 		if err != nil {
 			b.Fatalf("BlockingRead failed: %v", err)
 		}
@@ -854,7 +854,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB_1Core(b *testing.B) {
 	}
 	b.SetParallelism(10)
 	// Writer goroutine
-	ctx, cancel := context.WithCancel(b.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -880,7 +880,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB_1Core(b *testing.B) {
 
 	// Run benchmark iterations
 	for i := 0; i < b.N; i++ {
-		_, err = db.BlockingRead(b.Context())
+		_, err = db.BlockingRead(context.Background())
 		if err != nil {
 			b.Fatalf("BlockingRead failed: %v", err)
 		}
@@ -930,7 +930,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB_1Core(b *testing.B) {
 //					default:
 //					}
 //
-//					ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+//					ctx, cancel := context.WithTimeout(context.Background()(), time.Second)
 //					chunk, err1 := bf.BlockingRead(ctx)
 //					cancel()
 //					if err1 != nil {
@@ -1024,7 +1024,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB_1Core(b *testing.B) {
 //			default:
 //			}
 //
-//			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+//			ctx, cancel := context.WithTimeout(context.Background()(), time.Second)
 //			chunk, err1 := bf.BlockingRead(ctx)
 //			cancel()
 //			if err1 != nil {
@@ -1110,7 +1110,7 @@ func BenchmarkBlockingRead_Throughput_Zero_Copy_64KB_1Core(b *testing.B) {
 //			default:
 //			}
 //
-//			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+//			ctx, cancel := context.WithTimeout(context.Background()(), time.Second)
 //			chunk, err1 := bf.BlockingRead(ctx)
 //			cancel()
 //			if err1 != nil {
