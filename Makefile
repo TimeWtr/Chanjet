@@ -23,5 +23,5 @@ check:
 	@$(MAKE) --no-print-directory lint
 
 .PHONY: gen_atomicx
-gen_atomix:
+gen_atomicx:
 	@go run ./utils/atomicx/gen/gen.go
