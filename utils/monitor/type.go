@@ -12,4 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package utils
+package monitor
+
+import "time"
+
+type Observer interface {
+	Update(metrics Metrics)
+}
+
+type Subject interface {
+	Register(observer Observer)
+	Unregister(observer Observer)
+	NotifyAll()
+}
+
+type TimeoutController interface {
+	Timeout(collectInterval time.Duration) time.Duration
+	HandleTimeout(component string, collected int, latency time.Duration)
+	Recover()
+}
