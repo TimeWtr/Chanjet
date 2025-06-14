@@ -14,6 +14,8 @@
 
 package log
 
+import "time"
+
 type Level int8
 
 const (
@@ -22,6 +24,8 @@ const (
 	LevelWarn
 	LevelError
 	LevelFatal
+	LevelPanic
+	LevelInvalid
 )
 
 func (l Level) String() string {
@@ -38,6 +42,15 @@ func (l Level) String() string {
 		return "fatal"
 	default:
 		return "unknown"
+	}
+}
+
+func (l Level) valid() bool {
+	switch l {
+	case LevelDebug, LevelInfo, LevelWarn, LevelError, LevelFatal, LevelPanic:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -58,25 +71,65 @@ func (l Level) UpperString() string {
 	}
 }
 
+type Logger interface {
+	Core
+	Sync() error
+	With(fields ...Field) Logger
+	SetLevel(level Level) error
+}
+
+type Core interface {
+	Debug(format string, args ...Field)
+	Info(format string, args ...Field)
+	Warn(format string, args ...Field)
+	Error(format string, args ...Field)
+	Fatal(format string, args ...Field)
+	Panic(format string, args ...Field)
+}
+
 type Field struct {
 	Key string
 	Val any
 }
 
-type Core interface {
-	Log(Level, string, ...Field)
-	Sync()
+func StringField(key, val string) Field {
+	return Field{Key: key, Val: val}
 }
 
-type Logger interface {
-	Debug(args ...interface{})
-	Debugf(format string, args ...interface{})
-	Info(args ...interface{})
-	Infof(format string, args ...interface{})
-	Warn(args ...interface{})
-	Warnf(format string, args ...interface{})
-	Error(args ...interface{})
-	Errorf(format string, args ...interface{})
-	Fatal(args ...interface{})
-	Fatalf(format string, args ...interface{})
+func IntField(key string, val int) Field {
+	return Field{Key: key, Val: val}
+}
+
+func BoolField(key string, val bool) Field {
+	return Field{Key: key, Val: val}
+}
+
+func ErrorField(err error) Field {
+	return Field{Key: "error", Val: err}
+}
+
+func DurationFiled(key string, val time.Duration) Field {
+	return Field{Key: key, Val: val}
+}
+
+func TimeFiled(key string, val time.Time) Field {
+	return Field{Key: key, Val: val}
+}
+
+type LoggerType string
+
+const (
+	ZapLoggerType     LoggerType = "zap"
+	LogrusLoggerType  LoggerType = "logrus"
+	ZerologLoggerType LoggerType = "zerolog"
+	LogstashLogger    LoggerType = "logstash"
+)
+
+func (l LoggerType) valid() bool {
+	switch l {
+	case ZapLoggerType, LogrusLoggerType, LogstashLogger, ZerologLoggerType:
+		return true
+	default:
+		return false
+	}
 }
