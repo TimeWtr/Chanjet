@@ -8,7 +8,6 @@ import (
 	"unsafe"
 )
 
-
 // Int32 Atomic type encapsulation
 type Int32 struct {
 	value int32
@@ -51,9 +50,9 @@ func (a *Int32) Inc() int32 {
 
 // Dec Atomic decrement
 func (a *Int32) Dec() int32 {
-    
-        return a.Add(-1)
-    
+
+	return a.Add(-1)
+
 }
 
 // Int64 Atomic type encapsulation
@@ -98,9 +97,9 @@ func (a *Int64) Inc() int64 {
 
 // Dec Atomic decrement
 func (a *Int64) Dec() int64 {
-    
-        return a.Add(-1)
-    
+
+	return a.Add(-1)
+
 }
 
 // Uint32 Atomic type encapsulation
@@ -145,9 +144,9 @@ func (a *Uint32) Inc() uint32 {
 
 // Dec Atomic decrement
 func (a *Uint32) Dec() uint32 {
-    
-        return a.Add(^uint32(0))
-    
+
+	return a.Add(^uint32(0))
+
 }
 
 // Uint64 Atomic type encapsulation
@@ -192,9 +191,9 @@ func (a *Uint64) Inc() uint64 {
 
 // Dec Atomic decrement
 func (a *Uint64) Dec() uint64 {
-    
-        return a.Add(^uint64(0))
-    
+
+	return a.Add(^uint64(0))
+
 }
 
 // Uintptr Atomic type encapsulation
@@ -239,7 +238,7 @@ func (a *Uintptr) Inc() uintptr {
 
 // Dec Atomic decrement
 func (a *Uintptr) Dec() uintptr {
-    
-        return a.Add(^uintptr(0))
-    
+
+	return a.Add(^uintptr(0))
+
 }
