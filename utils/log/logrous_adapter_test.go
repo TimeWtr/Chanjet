@@ -82,3 +82,18 @@ func TestLogrusAdapter(t *testing.T) {
 		assert.Empty(t, buf.String())
 	})
 }
+
+func Benchmark_Logrus(b *testing.B) {
+	buf := new(bytes.Buffer)
+	logger := logrus.New()
+	logger.SetOutput(buf)
+	logger.SetFormatter(&logrus.TextFormatter{
+		DisableTimestamp: true,
+		DisableQuote:     true,
+	})
+
+	adapter, _ := NewLogrusAdapter(logger).(*LogrusAdapter)
+	for i := 0; i < b.N; i++ {
+		adapter.Info("test message", IntField("count", 42))
+	}
+}

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package monitor
+package metrics
 
 import (
 	"time"
@@ -25,7 +25,6 @@ type OpenSourceTimeout struct {
 	l          log.Logger
 }
 
-//nolint:unused // this will be called.
 func newOpenSourceTimeout(ratio float64, l log.Logger) TimeoutController {
 	return &OpenSourceTimeout{
 		fixedRatio: ratio,
@@ -38,7 +37,7 @@ func (o *OpenSourceTimeout) Timeout(collectInterval time.Duration) time.Duration
 }
 
 func (o *OpenSourceTimeout) HandleTimeout(component string, collected int, latency time.Duration) {
-	o.l.Warn("收集超时",
+	o.l.Warn("collect context deadline",
 		log.StringField("component", component),
 		log.IntField("collected", collected),
 		log.DurationField("latency", latency))

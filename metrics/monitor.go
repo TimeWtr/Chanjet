@@ -12,18 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package monitor
+package metrics
 
 import (
 	"sync"
 	"time"
 
+	"github.com/TimeWtr/TurboStream/utils/atomicx"
+	"github.com/TimeWtr/TurboStream/utils/log"
 	"github.com/panjf2000/ants"
 	"golang.org/x/net/context"
 )
 
 const (
-	collectInterval = 1 * time.Second
+	collectInterval = 5 * time.Second
 	reportInterval  = 5 * time.Second
 )
 
@@ -35,7 +37,7 @@ func WithTimeoutController(ctrl TimeoutController) Options {
 	}
 }
 
-func WithReportInterval(interval time.Duration) Options {
+func WithCollectInterval(interval time.Duration) Options {
 	return func(r *Monitor) {
 		r.reportInterval = interval
 	}
@@ -72,9 +74,10 @@ type Monitor struct {
 	mu                sync.RWMutex
 	pool              *ants.Pool
 	timeoutCtrl       TimeoutController
+	state             *atomicx.Bool
 }
 
-func NewMonitor(opts ...Options) (*Monitor, error) {
+func NewMonitor(l log.Logger, opts ...Options) (*Monitor, error) {
 	m := &Monitor{
 		collectInterval:   collectInterval,
 		reportInterval:    reportInterval,
@@ -84,6 +87,8 @@ func NewMonitor(opts ...Options) (*Monitor, error) {
 		memCollector:      newMemoryCollector(),
 		networkCollector:  newNetworkCollector(),
 		runtimesCollector: newRuntimesCollector(),
+		timeoutCtrl:       newOpenSourceTimeout(float64(collectInterval), l),
+		state:             atomicx.NewBool(),
 	}
 
 	const taskExpireDuration = 60 * time.Second
@@ -128,15 +133,17 @@ func (m *Monitor) NotifyAll() {
 	copy(copyObservers, m.observers)
 	m.mu.Unlock()
 
-	for _, observer := range m.observers {
+	for _, observer := range copyObservers {
 		observer.Update(m.metrics)
 	}
 }
 
 func (m *Monitor) Start(ctx context.Context) {
-	_, cancel := context.WithCancel(ctx)
-	m.cancelFunc = cancel
+	if !m.state.CompareAndSwap(false, true) {
+		return
+	}
 
+	m.ctx, m.cancelFunc = context.WithCancel(ctx)
 	m.wg.Add(1)
 	go m.runCollector()
 }
@@ -181,6 +188,8 @@ func (m *Monitor) collectAllMetrics() error {
 	select {
 	case <-done:
 		// collect success
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		timeTaken := time.Since(start).Milliseconds()
 		m.metrics.Timestamp = timeTaken
 		m.meta.TimeTakenQueue = append(m.meta.TimeTakenQueue, timeTaken)
@@ -198,6 +207,8 @@ func (m *Monitor) collectAllMetrics() error {
 		return nil
 	case <-time.After(m.timeoutCtrl.Timeout(m.reportInterval)):
 		// timeout
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		m.meta.ErrCount++
 		m.meta.LastCollectTime = time.Now()
 		return context.DeadlineExceeded
@@ -205,10 +216,24 @@ func (m *Monitor) collectAllMetrics() error {
 }
 
 func (m *Monitor) Stop() {
+	if !m.state.CompareAndSwap(true, false) {
+		return
+	}
 	if m.cancelFunc != nil {
 		m.cancelFunc()
 	}
 
 	m.pool.Release()
-	m.wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return
+	case <-time.After(m.timeoutCtrl.Timeout(m.reportInterval)):
+		return
+	}
 }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package monitor
+package metrics
 
 import (
 	"runtime"
@@ -161,6 +161,12 @@ func newDiskCollector() *DiskCollector {
 }
 
 func (d *DiskCollector) Collect(lastCollection time.Time) DiskStates {
+	if lastCollection.IsZero() {
+		currentIOCounters, _ := disk.IOCounters()
+		d.prevIOCounters = currentIOCounters
+		return DiskStates{Timestamp: time.Now().Unix()}
+	}
+
 	now := time.Now()
 	elapsed := now.Sub(lastCollection).Seconds()
 	if elapsed <= 0 {
