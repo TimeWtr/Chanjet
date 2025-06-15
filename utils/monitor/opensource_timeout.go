@@ -41,7 +41,7 @@ func (o *OpenSourceTimeout) HandleTimeout(component string, collected int, laten
 	o.l.Warn("收集超时",
 		log.StringField("component", component),
 		log.IntField("collected", collected),
-		log.DurationFiled("latency", latency))
+		log.DurationField("latency", latency))
 }
 
 func (o *OpenSourceTimeout) Recover() {}

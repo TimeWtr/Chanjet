@@ -78,7 +78,6 @@ func (z *ZapAdapter) With(fields ...Field) Logger {
 }
 
 func (z *ZapAdapter) SetLevel(level Level) error {
-	// TODO rebuild zap instance
 	if !level.valid() {
 		return errors.New("invalid log level")
 	}
@@ -86,8 +85,8 @@ func (z *ZapAdapter) SetLevel(level Level) error {
 	return nil
 }
 
-//nolint:unused  // this will be called.
-func (z *ZapAdapter) covertToZapLevel(level Level) zapcore.Level {
+//nolint:unused // this will be called.
+func (z *ZapAdapter) convertToZapLevel(level Level) zapcore.Level {
 	switch level {
 	case LevelDebug:
 		return zapcore.DebugLevel
@@ -106,8 +105,8 @@ func (z *ZapAdapter) covertToZapLevel(level Level) zapcore.Level {
 	}
 }
 
-//nolint:unused  // this will be called.
-func (z *ZapAdapter) covertToLevel(l zapcore.Level) Level {
+//nolint:unused // this will be called.
+func (z *ZapAdapter) convertToLevel(l zapcore.Level) Level {
 	switch l {
 	case zapcore.DebugLevel:
 		return LevelDebug
@@ -130,9 +129,10 @@ func (z *ZapAdapter) log(level Level, format string, fields ...Field) {
 	if z.level > level {
 		return
 	}
+
 	zapFields := make([]zap.Field, 0, len(fields))
 	for _, field := range fields {
-		zapFields = append(zapFields, zap.Any(format, field))
+		zapFields = append(zapFields, zap.Any(field.Key, field.Val))
 	}
 
 	switch level {
