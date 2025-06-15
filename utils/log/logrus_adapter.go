@@ -26,10 +26,11 @@ type LogrusAdapter struct {
 	level  Level
 }
 
-func NewLogrusAdapter(level Level, logger *logrus.Logger) Logger {
+func NewLogrusAdapter(logger *logrus.Logger) Logger {
 	return &LogrusAdapter{
 		logger: logger,
-		level:  level,
+		entry:  logrus.NewEntry(logger),
+		level:  getLevel(),
 	}
 }
 
@@ -72,7 +73,7 @@ func (l *LogrusAdapter) log(level Level, format string, fields ...Field) {
 		for _, field := range fields {
 			logrusFields[field.Key] = field.Val
 		}
-		entry.WithFields(logrusFields)
+		entry = entry.WithFields(logrusFields)
 	}
 
 	switch level {
@@ -97,8 +98,12 @@ func (l *LogrusAdapter) With(fields ...Field) Logger {
 	for _, field := range fields {
 		logrusFields[field.Key] = field.Val
 	}
-	l.logger.WithFields(logrusFields)
-	return &LogrusAdapter{}
+
+	return &LogrusAdapter{
+		logger: l.logger,
+		entry:  l.entry.WithFields(logrusFields),
+		level:  l.level,
+	}
 }
 
 func (l *LogrusAdapter) SetLevel(level Level) error {
@@ -129,8 +134,8 @@ func (l *LogrusAdapter) convertLogrusLevel(level Level) logrus.Level {
 	}
 }
 
-//nolint:unused  // this will be called.
-func (l *LogrusAdapter) covertLevel(level logrus.Level) Level {
+//nolint:unused // this will be called.
+func (l *LogrusAdapter) convertToLevel(level logrus.Level) Level {
 	switch level {
 	case logrus.DebugLevel:
 		return LevelDebug

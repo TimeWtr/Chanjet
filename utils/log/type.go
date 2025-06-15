@@ -40,6 +40,8 @@ func (l Level) String() string {
 		return "error"
 	case LevelFatal:
 		return "fatal"
+	case LevelPanic:
+		return "panic"
 	default:
 		return "unknown"
 	}
@@ -66,6 +68,8 @@ func (l Level) UpperString() string {
 		return "ERROR"
 	case LevelFatal:
 		return "FATAL"
+	case LevelPanic:
+		return "PANIC"
 	default:
 		return "UNKNOWN"
 	}
@@ -108,26 +112,29 @@ func ErrorField(err error) Field {
 	return Field{Key: "error", Val: err}
 }
 
-func DurationFiled(key string, val time.Duration) Field {
+func DurationField(key string, val time.Duration) Field {
 	return Field{Key: key, Val: val}
 }
 
-func TimeFiled(key string, val time.Time) Field {
+func TimeField(key string, val time.Time) Field {
 	return Field{Key: key, Val: val}
 }
 
 type LoggerType string
 
 const (
+	DefaultLoggerType LoggerType = "default"
 	ZapLoggerType     LoggerType = "zap"
 	LogrusLoggerType  LoggerType = "logrus"
 	ZerologLoggerType LoggerType = "zerolog"
 	LogstashLogger    LoggerType = "logstash"
 )
 
+//nolint:unused // this will be called.
 func (l LoggerType) valid() bool {
 	switch l {
-	case ZapLoggerType, LogrusLoggerType, LogstashLogger, ZerologLoggerType:
+	case DefaultLoggerType, ZapLoggerType, LogrusLoggerType,
+		LogstashLogger, ZerologLoggerType:
 		return true
 	default:
 		return false

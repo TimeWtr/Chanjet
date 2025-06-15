@@ -15,42 +15,13 @@
 package log
 
 import (
-	"errors"
 	"sync"
 )
 
 var (
 	mu           sync.RWMutex
-	adapters     = map[LoggerType]func() Core{}
-	currentLevel = LevelInfo
+	currentLevel Level = LevelInfo
 )
-
-func Register(tp LoggerType, adapter func() Core) error {
-	mu.Lock()
-	defer mu.Unlock()
-	if tp.valid() {
-		return errors.New("logger type is invalid")
-	}
-
-	adapters[tp] = adapter
-	return nil
-}
-
-func New(tp LoggerType) (Core, error) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if !tp.valid() {
-		return nil, errors.New("logger type is invalid")
-	}
-
-	adapter, ok := adapters[tp]
-	if !ok {
-		return nil, errors.New("logger adapter not exist, please init adapter")
-	}
-
-	return adapter(), nil
-}
 
 func SetLevel(level Level) {
 	mu.Lock()
